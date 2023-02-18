@@ -10,10 +10,11 @@ mod inode;
 
 use alloc::sync::Arc;
 use core::ops::{Deref, DerefMut};
-use jammdb::{DB};
+use jammdb::DB;
 use rvfs::StrResult;
-use spin::{Once};
+use spin::Once;
 
+pub use log::*;
 pub use fs_type::DBFS_TYPE;
 
 struct SafeDb(DB);
@@ -37,11 +38,26 @@ unsafe impl Send for SafeDb {}
 static DB: Once<Arc<SafeDb>> = Once::new();
 
 /// Initialize the global DBFS database
-pub fn init_dbfs(db: DB) -> StrResult<()> {
+pub fn init_dbfs(db: DB) {
     DB.call_once(|| Arc::new(SafeDb(db)));
-    Ok(())
 }
 
 fn clone_db() -> Arc<SafeDb> {
     DB.get().unwrap().clone()
 }
+
+
+#[macro_export]
+macro_rules! iinfo {
+    ($t:expr) => {
+        crate::info!("[{}] [{}] :{}", file!(), $t, line!());
+    };
+}
+
+#[macro_export]
+macro_rules! wwarn {
+    ($t:expr) => {
+        crate::warn!("[{}] [{}] :{}", file!(), $t, line!());
+    };
+}
+

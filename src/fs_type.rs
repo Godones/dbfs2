@@ -1,16 +1,13 @@
+use crate::{clone_db, wwarn};
 use crate::file::DBFS_DIR_FILE_OPS;
 use crate::inode::{DBFS_DIR_INODE_OPS, DBFS_INODE_NUMBER};
-use crate::{clone_db};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::sync::{Arc, Weak};
 use alloc::vec;
-use rvfs::{
-    create_tmp_inode_from_sb_blk, find_super_blk, DataOps, DirEntry, FileSystemAttr,
-    FileSystemType, Inode, InodeMode, MountFlags, StrResult, SuperBlock, SuperBlockOps,
-};
+use rvfs::{create_tmp_inode_from_sb_blk, find_super_blk, DataOps, DirEntry, FileSystemAttr, FileSystemType, Inode, InodeMode, MountFlags, StrResult, SuperBlock, SuperBlockOps};
 use spin::Mutex;
-
+use log::warn;
 pub const DBFS_TYPE: FileSystemType = FileSystemType {
     name: "dbfs",
     fs_flags: FileSystemAttr::empty(),
@@ -25,8 +22,10 @@ fn dbfs_get_super_blk(
     dev_name: &str,
     data: Option<Box<dyn DataOps>>,
 ) -> StrResult<Arc<Mutex<SuperBlock>>> {
-    let compare =
-        |sb_blk: Arc<Mutex<SuperBlock>>| -> bool { sb_blk.lock().blk_dev_name.as_str() == dev_name };
+    wwarn!("dbfs_get_super_blk");
+    let compare = |sb_blk: Arc<Mutex<SuperBlock>>| -> bool {
+        sb_blk.lock().blk_dev_name.as_str() == dev_name
+    };
     let find_sb_blk = find_super_blk(fs_type.clone(), Some(&compare));
     let sb_blk = match find_sb_blk {
         // 找到了旧超级快
@@ -40,6 +39,7 @@ fn dbfs_get_super_blk(
             Ok(sb_blk)
         }
     };
+    wwarn!("dbfs_get_super_blk end");
     sb_blk
 }
 fn dbfs_kill_super_blk(_super_blk: Arc<Mutex<SuperBlock>>) {}
@@ -95,7 +95,8 @@ fn dbfs_fill_super_block(sb_blk: Arc<Mutex<SuperBlock>>) -> StrResult<()> {
 fn dbfs_create_root_inode(sb_blk: Arc<Mutex<SuperBlock>>) -> StrResult<Arc<Mutex<Inode>>> {
     let db = clone_db();
     let tx = db.tx(true).unwrap();
-    let _ = tx.get_or_create_bucket("0").unwrap();
+    let _ = tx.get_or_create_bucket(0usize.to_be_bytes()).unwrap();
+    tx.commit();
     let first_number = DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
     assert_eq!(first_number, 0);
     // create a inode from super block
