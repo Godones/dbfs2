@@ -12,6 +12,7 @@ pub static DBFS_INODE_NUMBER: AtomicUsize = AtomicUsize::new(0);
 
 pub const DBFS_DIR_INODE_OPS: InodeOps = InodeOps {
     follow_link: |_, _| Err("Not a symlink"),
+    readlink: |_,_|Err("Not support"),
     lookup: |_, _| Err("Not support"),
     create: dbfs_create,
     mkdir: dbfs_mkdir,

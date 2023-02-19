@@ -1,6 +1,6 @@
 use jammdb::memfile::{FakeMap, FileOpenOptions};
 use jammdb::DB;
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, read_dir};
 use std::os::unix::fs::FileExt;
 use std::sync::Arc;
 
@@ -18,4 +18,8 @@ fn main() {
     file.write_all_at(b"hello", 10).unwrap();
     let meta = file.metadata().unwrap().len();
     println!("meta: {}", meta);
+    let dir = read_dir("./").unwrap();
+    for dir in dir{
+        println!("dir: {:?}", dir);
+    }
 }
