@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-jammdb = {path = "../jammdb"}
-rvfs = {path = "../rvfs"}
+rvfs = {git = "https://github.com/Godones/rvfs.git"}
+jammdb = {git = "https://github.com/Godones/jammdb.git"}
 spin = "0.9.2"
 log = "0.4.14"
