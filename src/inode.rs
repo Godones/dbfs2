@@ -16,20 +16,24 @@ pub const DBFS_DIR_INODE_OPS: InodeOps = InodeOps {
     lookup: |_, _| Err("Not support"),
     create: dbfs_create,
     mkdir: dbfs_mkdir,
+    rmdir: |_,_| Err("Not support"),
     link: dbfs_link,
     unlink: dbfs_unlink,
-    get_attr: |_| Err("Not support"),
+    truncate: |_|Err("Not support"),
+    get_attr: |_, _, _| Err("Not support"),
+    set_attr: |_,_,_|Err("Not support"),
+    remove_attr: |_,_|Err("Not support"),
+    list_attr: |_,_|Err("Not support"),
     symlink: dbfs_symlink,
+    rename: |_,_,_,_|Err("Not support"),
 };
 
 pub const DBFS_FILE_INODE_OPS: InodeOps = {
     let mut ops = InodeOps::empty();
-    ops.get_attr = |_| Err("Not support");
     ops
 };
 pub const DBFS_SYMLINK_INODE_OPS: InodeOps = {
     let mut ops = InodeOps::empty();
-    ops.get_attr = |_| Err("Not support");
     ops
 };
 
