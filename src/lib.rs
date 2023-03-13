@@ -2,8 +2,7 @@
 #![allow(unused)]
 extern crate alloc;
 
-#[macro_use]
-extern crate log;
+mod dir;
 mod file;
 mod fs_type;
 mod inode;
@@ -14,8 +13,7 @@ use jammdb::DB;
 use rvfs::StrResult;
 use spin::Once;
 
-pub use log::*;
-pub use fs_type::DBFS_TYPE;
+pub use fs_type::DBFS;
 
 struct SafeDb(DB);
 
@@ -46,18 +44,15 @@ fn clone_db() -> Arc<SafeDb> {
     DB.get().unwrap().clone()
 }
 
-
 #[macro_export]
-macro_rules! iinfo {
-    ($t:expr) => {
-        crate::info!("[{}] [{}] :{}", file!(), $t, line!());
+macro_rules! u32 {
+    ($x:expr) => {
+        u32::from_le_bytes($x.try_into().unwrap())
     };
 }
-
 #[macro_export]
-macro_rules! wwarn {
-    ($t:expr) => {
-        crate::warn!("[{}] [{}] :{}", file!(), $t, line!());
+macro_rules! usize {
+    ($x:expr) => {
+        usize::from_le_bytes($x.try_into().unwrap())
     };
 }
-
