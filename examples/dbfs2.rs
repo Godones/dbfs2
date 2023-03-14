@@ -7,6 +7,7 @@ use rvfs::mount::{do_mount, MountFlags};
 use rvfs::superblock::register_filesystem;
 use rvfs::{init_process_info, FakeFSC};
 use std::sync::Arc;
+use rvfs::stat::{vfs_getxattr, vfs_listxattr, vfs_setxattr};
 
 fn main() {
     env_logger::init();
@@ -49,6 +50,29 @@ fn main() {
     let len = vfs_read_file::<FakeFSC>(f1_file,&mut buf,0).unwrap();
     println!("len:{}",len);
     println!("buf:{}",std::str::from_utf8(&buf).unwrap());
+
+
+    vfs_setxattr::<FakeFSC>("/db/f1", "note", "the test file".as_bytes()).unwrap();
+    vfs_setxattr::<FakeFSC>("/db/f1", "note1", "note something".as_bytes()).unwrap();
+    let mut buf = [0u8; 20];
+    let len = vfs_listxattr::<FakeFSC>("/db/f1", &mut buf).unwrap();
+    println!("len: {}", len);
+    buf.split(|&x| x == 0)
+        .collect::<Vec<&[u8]>>()
+        .iter()
+        .map(|&x| std::str::from_utf8(x).unwrap())
+        .collect::<Vec<&str>>()
+        .iter()
+        .for_each(|x| {
+            if x.is_empty(){
+                return;
+            }
+            println!("attr: {}", x);
+        });
+    let mut buf = [0u8;20];
+    let len = vfs_getxattr::<FakeFSC>("/db/f1", "note1", &mut buf).unwrap();
+    println!("len: {}", len);
+    println!("note: {}", std::str::from_utf8(&buf).unwrap());
 }
 
 fn init_db(db: &DB) {
