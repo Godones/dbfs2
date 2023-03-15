@@ -1,13 +1,16 @@
 use dbfs2::DBFS;
 use jammdb::memfile::{FakeMap, FileOpenOptions};
 use jammdb::DB;
-use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_readdir, FileFlags, FileMode, vfs_write_file, vfs_read_file};
-use rvfs::link::vfs_link;
+use rvfs::dentry::{vfs_rename, vfs_rmdir};
+use rvfs::file::{
+    vfs_mkdir, vfs_open_file, vfs_read_file, vfs_readdir, vfs_write_file, FileFlags, FileMode,
+};
+use rvfs::link::{vfs_link, vfs_readlink, vfs_symlink};
 use rvfs::mount::{do_mount, MountFlags};
+use rvfs::stat::{vfs_getxattr, vfs_listxattr, vfs_setxattr};
 use rvfs::superblock::register_filesystem;
 use rvfs::{init_process_info, FakeFSC};
 use std::sync::Arc;
-use rvfs::stat::{vfs_getxattr, vfs_listxattr, vfs_setxattr};
 
 fn main() {
     env_logger::init();
@@ -39,18 +42,17 @@ fn main() {
     // println!("{:#?}",file);
     vfs_link::<FakeFSC>("/db/f1", "/db/f2").unwrap();
     println!("{:#?}", f1_file);
-    let file = vfs_open_file::<FakeFSC>("/db", FileFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
-    vfs_readdir(file.clone()).unwrap().for_each(|x| {
+    let root = vfs_open_file::<FakeFSC>("/db", FileFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
+    vfs_readdir(root.clone()).unwrap().for_each(|x| {
         println!("{:#?}", x);
     });
 
-    let len = vfs_write_file::<FakeFSC>(f1_file.clone(), b"hello world",0).unwrap();
-    println!("len:{}",len);
-    let mut  buf = [0u8;20];
-    let len = vfs_read_file::<FakeFSC>(f1_file,&mut buf,0).unwrap();
-    println!("len:{}",len);
-    println!("buf:{}",std::str::from_utf8(&buf).unwrap());
-
+    let len = vfs_write_file::<FakeFSC>(f1_file.clone(), b"hello world", 0).unwrap();
+    println!("len:{}", len);
+    let mut buf = [0u8; 20];
+    let len = vfs_read_file::<FakeFSC>(f1_file.clone(), &mut buf, 0).unwrap();
+    println!("len:{}", len);
+    println!("buf:{}", std::str::from_utf8(&buf).unwrap());
 
     vfs_setxattr::<FakeFSC>("/db/f1", "note", "the test file".as_bytes()).unwrap();
     vfs_setxattr::<FakeFSC>("/db/f1", "note1", "note something".as_bytes()).unwrap();
@@ -64,15 +66,42 @@ fn main() {
         .collect::<Vec<&str>>()
         .iter()
         .for_each(|x| {
-            if x.is_empty(){
+            if x.is_empty() {
                 return;
             }
             println!("attr: {}", x);
         });
-    let mut buf = [0u8;20];
+    let mut buf = [0u8; 20];
     let len = vfs_getxattr::<FakeFSC>("/db/f1", "note1", &mut buf).unwrap();
     println!("len: {}", len);
     println!("note: {}", std::str::from_utf8(&buf).unwrap());
+
+    vfs_symlink::<FakeFSC>("/db/f1", "/db/symf1").unwrap();
+    let mut buf = [0u8; 10];
+    let size = vfs_readlink::<FakeFSC>("/db/symf1", buf.as_mut()).unwrap();
+    println!("size: {}", size);
+    println!("link: {}", std::str::from_utf8(&buf).unwrap());
+
+    let file =
+        vfs_open_file::<FakeFSC>("/db/symf1", FileFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
+    println!("file:{:#?}", file);
+    println!("f1_file:{:#?}", f1_file);
+    assert!(Arc::ptr_eq(&file, &f1_file));
+
+    vfs_mkdir::<FakeFSC>("/db/dir1", FileMode::FMODE_WRITE).unwrap();
+    vfs_readdir(root.clone()).unwrap().for_each(|x| {
+        println!("{:#?}", x);
+    });
+    vfs_rmdir::<FakeFSC>("db/dir1").unwrap();
+    vfs_readdir(root.clone()).unwrap().for_each(|x| {
+        println!("{:#?}", x);
+    });
+
+    vfs_rename::<FakeFSC>("db/f1", "db/f3").unwrap();
+
+    vfs_readdir(root.clone()).unwrap().for_each(|x| {
+        println!("{:#?}", x);
+    });
 }
 
 fn init_db(db: &DB) {

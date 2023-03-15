@@ -2,8 +2,8 @@ use crate::{clone_db, usize};
 use alloc::borrow::ToOwned;
 use alloc::string::ToString;
 use alloc::sync::Arc;
-use alloc::{format, vec};
 use alloc::vec::Vec;
+use alloc::{format, vec};
 use core::cmp::min;
 use core::fmt::write;
 use rvfs::dentry::DirContext;
@@ -24,7 +24,11 @@ pub const DBFS_FILE_FILE_OPS: FileOps = {
     ops.open = |_| Ok(());
     ops
 };
-pub const DBFS_SYMLINK_FILE_OPS: FileOps = FileOps::empty();
+pub const DBFS_SYMLINK_FILE_OPS: FileOps = {
+    let mut ops = FileOps::empty();
+    ops.open = |_| Ok(());
+    ops
+};
 
 fn dbfs_file_write(file: Arc<File>, buf: &[u8], offset: u64) -> StrResult<usize> {
     let dentry = file.f_dentry.clone();
@@ -65,7 +69,8 @@ fn dbfs_file_read_inner(number: usize, buf: &mut [u8], offset: u64) -> StrResult
         let kv = kv.unwrap();
         let value = kv.value();
         let len = min(buf.len() - buf_offset, 512 - offset as usize);
-        buf[buf_offset..buf_offset + len].copy_from_slice(&value[offset as usize..offset as usize + len]);
+        buf[buf_offset..buf_offset + len]
+            .copy_from_slice(&value[offset as usize..offset as usize + len]);
         buf_offset += len;
         offset = 0;
         num += 1;
@@ -99,14 +104,14 @@ fn dbfs_file_write_inner(number: usize, buf: &[u8], offset: u64) -> StrResult<us
     loop {
         let key = format!("data{:04x}", num as u32);
         let kv = bucket.get_kv(key.as_bytes());
-        let mut data = if kv.is_some(){
+        let mut data = if kv.is_some() {
             // the existed data
             kv.unwrap().value().to_owned()
-        }else {
+        } else {
             // the new data
-            vec![0;512]
+            vec![0; 512]
         };
-        if offset as usize > data.len(){
+        if offset as usize > data.len() {
             data.resize(offset as usize, 0);
         }
         let len = min(buf.len() - count, 512 - offset as usize);

@@ -29,6 +29,7 @@ pub const DBFS_DIR_INODE_OPS: InodeOps = {
     ops.get_attr = dbfs_getattr;
     ops.list_attr = dbfs_listattr;
     ops.remove_attr = dbfs_removeattr;
+    ops.rename = dbfs_rename;
     ops
 };
 
@@ -142,23 +143,23 @@ fn dbfs_symlink(dir: Arc<Inode>, dentry: Arc<DirEntry>, target: &str) -> StrResu
     )
 }
 
-fn dbfs_lookup(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()>{
+fn dbfs_lookup(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
     let db = clone_db();
     let tx = db.tx(false).unwrap();
     let number = dir.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let name = &dentry.access_inner().d_name;
     let value = bucket.kv_pairs().find(|kv| {
-        kv.key().starts_with("data".as_bytes())&&kv.value().starts_with(name.as_bytes())
+        kv.key().starts_with("data".as_bytes()) && kv.value().starts_with(name.as_bytes())
     });
-    if value.is_none(){
+    if value.is_none() {
         return Err("not found");
     }
     let value = value.unwrap();
     let value = value.value();
     let str = core::str::from_utf8(value).unwrap();
     let data = str.rsplitn(2, ':').collect::<Vec<&str>>();
-    let number  = data[0].parse::<usize>().unwrap();
+    let number = data[0].parse::<usize>().unwrap();
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let mode = bucket.get_kv("mode").unwrap();
     let inode_mode = InodeMode::from(mode.value());
@@ -179,37 +180,64 @@ fn dbfs_lookup(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()>{
     Ok(())
 }
 
-fn dbfs_rmdir(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()>{
-    todo!()
+fn dbfs_rmdir(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
+    let db = clone_db();
+    let tx = db.tx(true).unwrap();
+    let number = dir.number;
+    let dir_bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let name = &dentry.access_inner().d_name;
+    let value = dir_bucket.kv_pairs().find(|kv| {
+        kv.key().starts_with("data".as_bytes()) && kv.value().starts_with(name.as_bytes())
+    });
+    if value.is_none() {
+        return Err("dir not found");
+    }
+    let value = value.unwrap();
+    let v_value = value.value();
+    let str = core::str::from_utf8(v_value).unwrap();
+    let data = str.rsplitn(2, ':').collect::<Vec<&str>>();
+    let number = data[0].parse::<usize>().unwrap();
+    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let mode = bucket.get_kv("mode").unwrap();
+    let inode_mode = InodeMode::from(mode.value());
+    if !inode_mode == InodeMode::S_DIR {
+        return Err("not a dir");
+    }
+    // delete dentry in db
+    dir_bucket.delete(value.key()).unwrap();
+    tx.delete_bucket(number.to_be_bytes()).unwrap();
+    tx.commit().unwrap();
+    dir.access_inner().file_size -= 1;
+    Ok(())
 }
 
 /// create a new attribute for a dentry
 /// if the key is already exist, it will be overwrite
 /// if the key is not exist, it will be created
-fn dbfs_setattr(dentry: Arc<DirEntry>, key: &str, val: &[u8]) -> StrResult<()>{
+fn dbfs_setattr(dentry: Arc<DirEntry>, key: &str, val: &[u8]) -> StrResult<()> {
     let db = clone_db();
     let tx = db.tx(true).unwrap();
-    let number= dentry.access_inner().d_inode.number;
+    let number = dentry.access_inner().d_inode.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let key = format!("attr:{}", key);
     bucket.put(key, val).unwrap();
     tx.commit().unwrap();
     Ok(())
 }
-fn dbfs_removeattr(dentry: Arc<DirEntry>, key: &str) -> StrResult<()>{
+fn dbfs_removeattr(dentry: Arc<DirEntry>, key: &str) -> StrResult<()> {
     let db = clone_db();
     let tx = db.tx(true).unwrap();
-    let number= dentry.access_inner().d_inode.number;
+    let number = dentry.access_inner().d_inode.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let key = format!("attr:{}", key);
     bucket.delete(key).unwrap();
     tx.commit().unwrap();
     Ok(())
 }
-fn dbfs_getattr(dentry: Arc<DirEntry>, key: &str,buf:&mut [u8]) -> StrResult<usize>{
+fn dbfs_getattr(dentry: Arc<DirEntry>, key: &str, buf: &mut [u8]) -> StrResult<usize> {
     let db = clone_db();
     let tx = db.tx(false).unwrap();
-    let number= dentry.access_inner().d_inode.number;
+    let number = dentry.access_inner().d_inode.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let key = format!("attr:{}", key);
     let value = bucket.get_kv(key).unwrap();
@@ -219,41 +247,100 @@ fn dbfs_getattr(dentry: Arc<DirEntry>, key: &str,buf:&mut [u8]) -> StrResult<usi
     Ok(len)
 }
 
-fn dbfs_listattr(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize>{
+fn dbfs_listattr(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize> {
     let db = clone_db();
     let tx = db.tx(false).unwrap();
-    let number= dentry.access_inner().d_inode.number;
+    let number = dentry.access_inner().d_inode.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let mut len = 0;
-    for kv in bucket.kv_pairs(){
+    for kv in bucket.kv_pairs() {
         let key = kv.key();
-        if key.starts_with("attr:".as_bytes()){
-            let key = key.splitn(2, |c|*c==b':').collect::<Vec<&[u8]>>();
+        if key.starts_with("attr:".as_bytes()) {
+            let key = key.splitn(2, |c| *c == b':').collect::<Vec<&[u8]>>();
             let key = key[1];
             let key_len = key.len();
-            if len + key_len > buf.len(){
+            if len + key_len > buf.len() {
                 break;
             }
-            buf[len..len+key_len].copy_from_slice(key);
-            buf[len+key_len] = 0;
-            len += key_len+1;
+            buf[len..len + key_len].copy_from_slice(key);
+            buf[len + key_len] = 0;
+            len += key_len + 1;
         }
     }
     Ok(len)
 }
-fn dbfs_readlink(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize>{
+fn dbfs_readlink(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize> {
     let db = clone_db();
     let tx = db.tx(false).unwrap();
-    let number= dentry.access_inner().d_inode.number;
+    let number = dentry.access_inner().d_inode.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
-    let value = bucket.get_kv("target").unwrap();
+    let value = bucket.get_kv("data").unwrap();
     let value = value.value();
     let len = min(value.len(), buf.len());
     buf[..len].copy_from_slice(value);
     Ok(len)
 }
-fn dbfs_followlink(dentry: Arc<DirEntry>, lookup_data: &mut LookUpData)->StrResult<()>{
-    todo!()
+fn dbfs_followlink(dentry: Arc<DirEntry>, lookup_data: &mut LookUpData) -> StrResult<()> {
+    let db = clone_db();
+    let tx = db.tx(false).unwrap();
+    let number = dentry.access_inner().d_inode.number;
+    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let value = bucket.get_kv("data").unwrap();
+    let value = value.value();
+    let str = core::str::from_utf8(value).unwrap();
+    lookup_data.symlink_names.push(str.to_string());
+    Ok(())
+}
+
+fn dbfs_rename(
+    old_dir: Arc<Inode>,
+    old_dentry: Arc<DirEntry>,
+    new_dir: Arc<Inode>,
+    new_dentry: Arc<DirEntry>,
+) -> StrResult<()> {
+    let db = clone_db();
+    let tx = db.tx(false).unwrap();
+    let old_number = old_dir.number;
+
+    let old_bucket = tx.get_bucket(old_number.to_be_bytes()).unwrap();
+    let old_name = old_dentry.access_inner().d_name.clone();
+    let kv = old_bucket.kv_pairs().find(|kv| {
+        kv.key().starts_with("data".as_bytes()) && kv.value().starts_with(old_name.as_bytes())
+    });
+    let new_number = new_dir.number;
+    if let Some(kv) = kv {
+        let key = kv.key();
+        let value = kv.value();
+        let str = core::str::from_utf8(value).unwrap();
+        let data = str.rsplitn(2, ':').collect::<Vec<&str>>();
+        let number = data[0].parse::<usize>().unwrap();
+
+        let new_name = new_dentry.access_inner().d_name.clone();
+        let new_value = format!("{}:{}", new_name, new_number);
+        let tx = db.tx(true).unwrap();
+        let old_bucket = tx.get_bucket(old_number.to_be_bytes()).unwrap();
+        if new_number == old_number {
+            // in the same bucket
+            // update old bucket
+            old_bucket.put(key, new_value).unwrap();
+        } else {
+            // in different bucket
+            let new_bucket = tx.get_bucket(new_number.to_be_bytes()).unwrap();
+            // update old bucket
+            old_bucket.delete(key).unwrap();
+            // update new bucket
+            let next_number = new_bucket.next_int();
+            let new_key = format!("data:{}", next_number);
+            new_bucket.put(new_key, new_value).unwrap();
+
+            old_dir.access_inner().file_size -= 1;
+            new_dir.access_inner().file_size += 1;
+        }
+        tx.commit().unwrap();
+    } else {
+        return Err("dbfs_rename: old_dentry not found");
+    }
+    Ok(())
 }
 fn dbfs_common_create(
     dir: Arc<Inode>,
@@ -309,6 +396,8 @@ fn dbfs_common_create(
     }
     tx.commit().unwrap();
 
+    // update the parent size of the directory
+    dir.access_inner().file_size += 1;
     // set dentry with inode
     dentry.access_inner().d_inode = n_inode;
     ddebug!("dbfs_common_create end");
@@ -331,7 +420,6 @@ fn inode_mode_from_file_mode(file_mode: FileMode) -> String {
     }
     mode
 }
-
 
 fn inode_type_from_inode_mode(inode_mode: InodeMode) -> &'static str {
     match inode_mode {

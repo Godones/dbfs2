@@ -21,5 +21,5 @@ fn main() {
         println!("{}:{}", key, value);
     });
 
-    println!("{}",format!("data{:04x}",3));
+    println!("{}", format!("data{:04x}", 3));
 }
