@@ -7,10 +7,13 @@ edition = "2021"
 
 [dependencies]
 rvfs = {path = "../rvfs"}
-jammdb = {git = "https://github.com/Godones/jammdb.git"}
+jammdb = {path = "../jammdb"}
 spin = "0.9.2"
 
-
+dbop = {path = "../dbop"}
+preprint = "0.1.0"
 
 [dev-dependencies]
 env_logger = "0.9.0"
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+serde = {version = "1.0.136",default-features = false,features = ["derive","alloc"]}

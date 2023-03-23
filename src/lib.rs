@@ -14,6 +14,7 @@ use rvfs::StrResult;
 use spin::Once;
 
 pub use fs_type::DBFS;
+pub mod extend;
 
 struct SafeDb(DB);
 
