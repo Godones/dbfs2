@@ -48,12 +48,12 @@ fn clone_db() -> Arc<SafeDb> {
 #[macro_export]
 macro_rules! u32 {
     ($x:expr) => {
-        u32::from_le_bytes($x.try_into().unwrap())
+        u32::from_be_bytes($x.try_into().unwrap())
     };
 }
 #[macro_export]
 macro_rules! usize {
     ($x:expr) => {
-        usize::from_le_bytes($x.try_into().unwrap())
+        usize::from_be_bytes($x.try_into().unwrap())
     };
 }

@@ -4,11 +4,11 @@ use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::{format, vec};
-use core::cmp::min;
+use core::cmp::{max, min};
 use core::fmt::write;
 use rvfs::dentry::DirContext;
 use rvfs::file::{File, FileOps};
-use rvfs::{info, StrResult};
+use rvfs::{info, warn, StrResult};
 use spin::Mutex;
 
 pub const DBFS_DIR_FILE_OPS: FileOps = {
@@ -57,9 +57,11 @@ fn dbfs_file_read_inner(number: usize, buf: &mut [u8], offset: u64) -> StrResult
     if offset > size as u64 {
         return Ok(0);
     }
+    // warn!("read file size: {}, buf size: {}", size, buf.len());
     let mut num = offset / 512;
     let mut offset = offset % 512;
     let mut buf_offset = 0;
+    let mut total = 0;
     loop {
         let key = format!("data{:04x}", num as u32);
         let kv = bucket.get_kv(key.as_bytes());
@@ -68,13 +70,18 @@ fn dbfs_file_read_inner(number: usize, buf: &mut [u8], offset: u64) -> StrResult
         }
         let kv = kv.unwrap();
         let value = kv.value();
-        let len = min(buf.len() - buf_offset, 512 - offset as usize);
+
+        let real_size = min(size - total, 512);
+
+        let len = min(buf.len() - buf_offset, real_size - offset as usize);
         buf[buf_offset..buf_offset + len]
             .copy_from_slice(&value[offset as usize..offset as usize + len]);
         buf_offset += len;
-        offset = 0;
+        offset = (offset + len as u64) % 512;
         num += 1;
-        if buf_offset == buf.len() {
+        total += len;
+
+        if buf_offset == buf.len() || total == size {
             break;
         }
     }
@@ -95,9 +102,7 @@ fn dbfs_file_write_inner(number: usize, buf: &[u8], offset: u64) -> StrResult<us
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let size = bucket.get_kv("size").unwrap();
     let size = usize!(size.value());
-    if offset > size as u64 {
-        return Err("offset > size");
-    }
+    let o_offset = offset;
     let mut num = offset / 512;
     let mut offset = offset % 512;
     let mut count = 0;
@@ -124,6 +129,8 @@ fn dbfs_file_write_inner(number: usize, buf: &[u8], offset: u64) -> StrResult<us
             break;
         }
     }
+    let new_size = max(size, (o_offset as usize + count) as usize);
+    bucket.put("size", new_size.to_be_bytes()).unwrap();
     tx.commit();
     Ok(count)
 }

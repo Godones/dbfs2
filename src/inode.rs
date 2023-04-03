@@ -230,9 +230,14 @@ fn dbfs_removeattr(dentry: Arc<DirEntry>, key: &str) -> StrResult<()> {
     let number = dentry.access_inner().d_inode.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let key = format!("attr:{}", key);
-    bucket.delete(key).unwrap();
+    let res = bucket.delete(key);
+    let res = if res.is_err() {
+        Err("not found")
+    } else {
+        Ok(())
+    };
     tx.commit().unwrap();
-    Ok(())
+    res
 }
 fn dbfs_getattr(dentry: Arc<DirEntry>, key: &str, buf: &mut [u8]) -> StrResult<usize> {
     let db = clone_db();
@@ -240,11 +245,16 @@ fn dbfs_getattr(dentry: Arc<DirEntry>, key: &str, buf: &mut [u8]) -> StrResult<u
     let number = dentry.access_inner().d_inode.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let key = format!("attr:{}", key);
-    let value = bucket.get_kv(key).unwrap();
+    let value = bucket.get_kv(key);
+    let value = if value.is_none() {
+        return Err("not found");
+    } else {
+        value.unwrap()
+    };
     let value = value.value();
     let len = min(value.len(), buf.len());
-    buf[..len].copy_from_slice(value);
-    Ok(len)
+    buf[..len].copy_from_slice(&value[..len]);
+    Ok(value.len())
 }
 
 fn dbfs_listattr(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize> {
@@ -253,21 +263,23 @@ fn dbfs_listattr(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize> {
     let number = dentry.access_inner().d_inode.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let mut len = 0;
+    let mut total_attr_buf = 0;
     for kv in bucket.kv_pairs() {
         let key = kv.key();
         if key.starts_with("attr:".as_bytes()) {
             let key = key.splitn(2, |c| *c == b':').collect::<Vec<&[u8]>>();
             let key = key[1];
             let key_len = key.len();
-            if len + key_len > buf.len() {
-                break;
+            total_attr_buf += key_len + 1;
+            if len + key_len >= buf.len() {
+                continue;
             }
             buf[len..len + key_len].copy_from_slice(key);
             buf[len + key_len] = 0;
             len += key_len + 1;
         }
     }
-    Ok(len)
+    Ok(total_attr_buf)
 }
 fn dbfs_readlink(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize> {
     let db = clone_db();

@@ -3,7 +3,7 @@ use jammdb::memfile::{FakeMap, FileOpenOptions};
 use jammdb::DB;
 use rvfs::dentry::{vfs_rename, vfs_rmdir};
 use rvfs::file::{
-    vfs_mkdir, vfs_open_file, vfs_read_file, vfs_readdir, vfs_write_file, FileFlags, FileMode,
+    vfs_mkdir, vfs_open_file, vfs_read_file, vfs_readdir, vfs_write_file, FileMode, OpenFlags,
 };
 use rvfs::link::{vfs_link, vfs_readlink, vfs_symlink};
 use rvfs::mount::{do_mount, MountFlags};
@@ -20,12 +20,12 @@ fn main() {
     let mnt = rvfs::mount_rootfs();
     init_process_info(mnt);
     register_filesystem(DBFS).unwrap();
-    let file = vfs_open_file::<FakeFSC>("/", FileFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
+    let file = vfs_open_file::<FakeFSC>("/", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
     println!("root: {:#x?}", file);
     vfs_mkdir::<FakeFSC>("/db", FileMode::FMODE_WRITE).unwrap();
     let file = vfs_open_file::<FakeFSC>(
         "/file1",
-        FileFlags::O_RDWR | FileFlags::O_CREAT,
+        OpenFlags::O_RDWR | OpenFlags::O_CREAT,
         FileMode::FMODE_WRITE,
     )
     .unwrap();
@@ -35,14 +35,14 @@ fn main() {
 
     let f1_file = vfs_open_file::<FakeFSC>(
         "/db/f1",
-        FileFlags::O_RDWR | FileFlags::O_CREAT,
+        OpenFlags::O_RDWR | OpenFlags::O_CREAT,
         FileMode::FMODE_WRITE,
     )
     .unwrap();
     // println!("{:#?}",file);
     vfs_link::<FakeFSC>("/db/f1", "/db/f2").unwrap();
     println!("{:#?}", f1_file);
-    let root = vfs_open_file::<FakeFSC>("/db", FileFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
+    let root = vfs_open_file::<FakeFSC>("/db", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
     vfs_readdir(root.clone()).unwrap().for_each(|x| {
         println!("{:#?}", x);
     });
@@ -83,7 +83,7 @@ fn main() {
     println!("link: {}", std::str::from_utf8(&buf).unwrap());
 
     let file =
-        vfs_open_file::<FakeFSC>("/db/symf1", FileFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
+        vfs_open_file::<FakeFSC>("/db/symf1", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
     println!("file:{:#?}", file);
     println!("f1_file:{:#?}", f1_file);
     assert!(Arc::ptr_eq(&file, &f1_file));
@@ -107,8 +107,8 @@ fn main() {
 fn init_db(db: &DB) {
     let tx = db.tx(true).unwrap();
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
-    bucket.put("continue_number", 0usize.to_le_bytes()).unwrap();
-    bucket.put("magic", 1111u32.to_le_bytes()).unwrap();
-    bucket.put("blk_size", 512u32.to_le_bytes()).unwrap();
+    bucket.put("continue_number", 0usize.to_be_bytes()).unwrap();
+    bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
+    bucket.put("blk_size", 512u32.to_be_bytes()).unwrap();
     tx.commit().unwrap()
 }

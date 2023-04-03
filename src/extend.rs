@@ -1,3 +1,4 @@
+use crate::clone_db;
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::format;
@@ -5,7 +6,6 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cmp::min;
 use dbop::{Operate, OperateSet};
-use crate::clone_db;
 use jammdb::{Bucket, Data};
 use preprint::{pprint, pprintln};
 use rvfs::{info, warn, StrResult};
@@ -21,13 +21,12 @@ pub fn execute_operate(bucket: &str, operate: OperateSet) -> isize {
     for i in 1..path.len() {
         bucket = bucket.get_bucket(path[i]).unwrap();
     }
-    execute_operate_real(bucket,Box::new(operate));
+    execute_operate_real(bucket, Box::new(operate));
     tx.commit().unwrap();
     0
 }
 
-
-fn execute_operate_real(bucket:Bucket,operate:Box<OperateSet>)->isize{
+fn execute_operate_real(bucket: Bucket, operate: Box<OperateSet>) -> isize {
     for i in operate.operate {
         match i {
             Operate::RenameKey(operate) => {
@@ -67,8 +66,8 @@ fn execute_operate_real(bucket:Bucket,operate:Box<OperateSet>)->isize{
                     continue;
                 }
                 let new_bucket = bucket.create_bucket(key.clone()).unwrap();
-                if let Some(operate) = operate.other{
-                    execute_operate_real(new_bucket,operate);
+                if let Some(operate) = operate.other {
+                    execute_operate_real(new_bucket, operate);
                 }
             }
             Operate::DeleteKey(operate) => {
@@ -91,8 +90,8 @@ fn execute_operate_real(bucket:Bucket,operate:Box<OperateSet>)->isize{
             Operate::StepInto(operate) => {
                 let key = operate.key;
                 let new_bucket = bucket.get_bucket(key).unwrap();
-                if let Some(operate) = operate.other{
-                    execute_operate_real(new_bucket,operate);
+                if let Some(operate) = operate.other {
+                    execute_operate_real(new_bucket, operate);
                 }
             }
         }
@@ -100,23 +99,21 @@ fn execute_operate_real(bucket:Bucket,operate:Box<OperateSet>)->isize{
     0
 }
 
-
 /// This operation will cause low performance
-fn copy_bucket_data_recursive<'a,'tx>(old_bucket:Bucket<'a,'tx>,new_bucket:Bucket<'a,'tx>){
-    old_bucket.cursor().for_each(|data|{
-        match data{
-            Data::KeyValue(kv)=>{
-                new_bucket.put(kv.key().to_owned(),kv.value().to_owned()).unwrap();
-            }
-            Data::Bucket(bucket_name)=>{
-                let new_bucket = new_bucket.create_bucket(bucket_name.clone()).unwrap();
-                let mut old_bucket = old_bucket.get_bucket(bucket_name).unwrap();
-                copy_bucket_data_recursive(old_bucket,new_bucket);
-            }
+fn copy_bucket_data_recursive<'a, 'tx>(old_bucket: Bucket<'a, 'tx>, new_bucket: Bucket<'a, 'tx>) {
+    old_bucket.cursor().for_each(|data| match data {
+        Data::KeyValue(kv) => {
+            new_bucket
+                .put(kv.key().to_owned(), kv.value().to_owned())
+                .unwrap();
+        }
+        Data::Bucket(bucket_name) => {
+            let new_bucket = new_bucket.create_bucket(bucket_name.clone()).unwrap();
+            let mut old_bucket = old_bucket.get_bucket(bucket_name).unwrap();
+            copy_bucket_data_recursive(old_bucket, new_bucket);
         }
     })
 }
-
 
 pub fn extend_create_global_bucket(key: &str) -> StrResult<()> {
     let db = clone_db();
@@ -138,35 +135,33 @@ pub fn show_dbfs() -> StrResult<()> {
         let key = String::from_utf8_lossy(key).to_string();
         info!("BUCKET:{}", key);
         pprintln!("BUCKET:{}", key);
-        show_bucket(0,x);
+        show_bucket(0, x);
     });
     Ok(())
 }
 
-fn show_bucket(tab:usize,bucket: Bucket) {
+fn show_bucket(tab: usize, bucket: Bucket) {
     bucket.cursor().for_each(|x| match x {
         Data::Bucket(x) => {
             let key = x.name().to_owned();
-            let value = format!("BUCKET:{:?}",String::from_utf8_lossy(&key).to_string());
-            let v = tab*2 +value.len();
-            info!("{value:>w$}",w=v,value = value);
-            pprintln!("{value:>w$}",w=v,value = value);
+            let value = format!("BUCKET:{:?}", String::from_utf8_lossy(&key).to_string());
+            let v = tab * 2 + value.len();
+            info!("{value:>w$}", w = v, value = value);
+            pprintln!("{value:>w$}", w = v, value = value);
             let bucket = bucket.get_bucket(key).unwrap();
-            show_bucket(tab+1,bucket);
+            show_bucket(tab + 1, bucket);
         }
         Data::KeyValue(kv) => {
             let key = kv.key();
             let value = kv.value();
             let key = String::from_utf8_lossy(key).to_string();
-            let value = format!("{}:{:?}",key,value);
-            let v = tab*2 +value.len();
-            info!("{value:>w$}",w=v,value = value);
-            pprintln!("{value:>w$}",w=v,value = value);
+            let value = format!("{}:{:?}", key, value);
+            let v = tab * 2 + value.len();
+            info!("{value:>w$}", w = v, value = value);
+            pprintln!("{value:>w$}", w = v, value = value);
         }
     })
 }
-
-
 
 pub enum Para<'a, 'tx> {
     Data(&'a [u8]),
@@ -178,8 +173,8 @@ pub struct MyPara<'a, 'tx>(pub Para<'a, 'tx>);
 
 /// root:key:subkey:subkey:subkey
 pub fn execute<T, R>(key: &str, func: T, buf: &mut [u8]) -> R
-    where
-        T: FnOnce(&str, MyPara, &mut [u8]) -> R,
+where
+    T: FnOnce(&str, MyPara, &mut [u8]) -> R,
 {
     let db = clone_db();
     let tx = db.tx(true).unwrap();

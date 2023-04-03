@@ -10,7 +10,7 @@ fn main() {
 struct Address {
     street: String,
     city: Vec<String>,
-    name:Option<Box<Address>>,
+    name: Option<Box<Address>>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct A {
@@ -28,11 +28,11 @@ fn print_an_address() -> Result<()> {
     let address = Address {
         street: "10 Downing Street".to_owned(),
         city: vec!["London".to_owned(), "New York".to_owned()],
-        name:Some(Box::new(Address{
-            street:"5 Sec".to_string(),
-            city:vec!["Beijing".to_string()],
-            name:None
-        }))
+        name: Some(Box::new(Address {
+            street: "5 Sec".to_string(),
+            city: vec!["Beijing".to_string()],
+            name: None,
+        })),
     };
 
     // Serialize it to a JSON string.
