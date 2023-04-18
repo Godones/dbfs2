@@ -1,0 +1,243 @@
+use alloc::string::String;
+
+use bitflags::bitflags;
+
+#[derive(Debug,Default,Clone)]
+pub struct DbfsDirEntry {
+    pub ino: u64,
+    pub offset: u64,
+    pub kind: DbfsFileType,
+    pub name: String,
+}
+
+
+bitflags! {
+    #[derive(Copy, Clone)]
+    pub struct DbfsPermission: u16 {
+        const S_IFSOCK = 0o140000;
+        const S_IFLNK = 0o120000;
+        const S_IFREG = 0o100000;
+        const S_IFBLK = 0o060000;
+        const S_IFDIR = 0o040000;
+        const S_IFCHR = 0o020000;
+        const S_IFIFO = 0o010000;
+        const S_ISUID = 0o004000;
+        const S_ISGID = 0o002000;
+        const S_ISVTX = 0o001000;
+        const S_IRWXU = 0o700;
+        const S_IRUSR = 0o400;
+        const S_IWUSR = 0o200;
+        const S_IXUSR = 0o100;
+        const S_IRWXG = 0o070;
+        const S_IRGRP = 0o040;
+        const S_IWGRP = 0o020;
+        const S_IXGRP = 0o010;
+        const S_IRWXO = 0o007;
+        const S_IROTH = 0o004;
+        const S_IWOTH = 0o002;
+        const S_IXOTH = 0o001;
+    }
+}
+
+
+#[derive(Debug,Copy, Clone)]
+pub enum DbfsFileType{
+    NamedPipe,
+    /// Character device (S_IFCHR)
+    CharDevice,
+    /// Block device (S_IFBLK)
+    BlockDevice,
+    /// Directory (S_IFDIR)
+    Directory,
+    /// Regular file (S_IFREG)
+    RegularFile,
+    /// Symbolic link (S_IFLNK)
+    Symlink,
+    /// Unix domain socket (S_IFSOCK)
+    Socket,
+}
+
+impl Default for DbfsFileType{
+    fn default() -> Self {
+        DbfsFileType::RegularFile
+    }
+}
+
+impl From<DbfsPermission> for DbfsFileType {
+    fn from(value: DbfsPermission) -> Self {
+        if value.contains(DbfsPermission::S_IFSOCK) {
+            DbfsFileType::Socket
+        } else if value.contains(DbfsPermission::S_IFLNK) {
+            DbfsFileType::Symlink
+        } else if value.contains(DbfsPermission::S_IFREG) {
+            DbfsFileType::RegularFile
+        } else if value.contains(DbfsPermission::S_IFBLK) {
+            DbfsFileType::BlockDevice
+        } else if value.contains(DbfsPermission::S_IFDIR) {
+            DbfsFileType::Directory
+        } else if value.contains(DbfsPermission::S_IFCHR) {
+            DbfsFileType::CharDevice
+        } else if value.contains(DbfsPermission::S_IFIFO) {
+            DbfsFileType::NamedPipe
+        } else {
+            panic!("Invalid file type");
+        }
+    }
+}
+
+impl From<&[u8]> for DbfsFileType{
+    fn from(value: &[u8]) -> Self {
+        match value {
+            b"p" => DbfsFileType::NamedPipe,
+            b"c" => DbfsFileType::CharDevice,
+            b"b" => DbfsFileType::BlockDevice,
+            b"d" => DbfsFileType::Directory,
+            b"f" => DbfsFileType::RegularFile,
+            b"l" => DbfsFileType::Symlink,
+            b"s" => DbfsFileType::Socket,
+            _ => panic!("Invalid file type"),
+        }
+    }
+}
+
+
+#[derive(Debug,Copy, Clone,Default)]
+pub struct DbfsTimeSpec{
+    pub sec: u64,
+    pub nsec: u32,
+}
+
+impl Into<usize> for DbfsTimeSpec{
+    fn into(self) -> usize {
+        self.sec as usize * 1000 + self.nsec as usize / 1000000
+    }
+}
+
+
+impl DbfsTimeSpec {
+    #[allow(unused)]
+    pub fn new(sec: u64, nsec: u32) -> Self {
+        Self { sec, nsec }
+    }
+    pub fn from_sec(sec: u64) -> Self {
+        Self { sec, nsec: 0 }
+    }
+}
+
+#[derive(Debug)]
+pub struct DbfsAttr{
+    /// Inode number
+    pub ino: usize,
+    /// Size in bytes
+    pub size: usize,
+    /// Size in blocks
+    pub blocks: usize,
+    /// Time of last access
+    pub atime: DbfsTimeSpec,
+    /// Time of last modification
+    pub mtime: DbfsTimeSpec,
+    /// Time of last change
+    pub ctime: DbfsTimeSpec,
+    /// Time of creation (macOS only)
+    pub crtime: DbfsTimeSpec,
+    /// Kind of file (directory, file, pipe, etc)
+    pub kind: DbfsFileType ,
+    /// Permissions
+    pub perm: u16,
+    /// Number of hard links
+    pub nlink: u32,
+    /// User id
+    pub uid: u32,
+    /// Group id
+    pub gid: u32,
+    /// Rdev
+    pub rdev: u32,
+    /// Block size
+    pub blksize: u32,
+    /// Padding
+    pub padding: u32,
+    /// Flags (macOS only, see chflags(2))
+    pub flags: u32,
+}
+
+
+
+#[cfg(feature = "fuse")]
+mod impl_fuse {
+    extern crate std;
+    use super::*;
+    use std::time::SystemTime;
+    use fuser::{FileAttr, FileType};
+
+    impl From<DbfsFileType> for FileType{
+        fn from(value: DbfsFileType) -> Self {
+            match value {
+                DbfsFileType::NamedPipe => FileType::NamedPipe,
+                DbfsFileType::CharDevice => FileType::CharDevice,
+                DbfsFileType::BlockDevice => FileType::BlockDevice,
+                DbfsFileType::Directory => FileType::Directory,
+                DbfsFileType::RegularFile => FileType::RegularFile,
+                DbfsFileType::Symlink => FileType::Symlink,
+                DbfsFileType::Socket => FileType::Socket,
+            }
+        }
+    }
+
+    impl From<DbfsTimeSpec> for SystemTime {
+        fn from(value: DbfsTimeSpec) -> Self {
+            SystemTime::UNIX_EPOCH + std::time::Duration::new(value.sec as u64, value.nsec as u32)
+        }
+    }
+
+    impl From<SystemTime> for DbfsTimeSpec {
+        fn from(value: SystemTime) -> Self {
+            let duration = value.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+            DbfsTimeSpec {
+                sec: duration.as_secs(),
+                nsec: duration.subsec_nanos(),
+            }
+        }
+    }
+
+    impl From<DbfsAttr> for FileAttr{
+        fn from(value: DbfsAttr) -> Self {
+            FileAttr{
+                ino: value.ino as u64,
+                size: value.size as u64,
+                blocks: value.blocks as u64,
+                atime:  SystemTime::from(value.atime),
+                mtime:  SystemTime::from(value.mtime),
+                ctime:  SystemTime::from(value.ctime),
+                crtime: SystemTime::UNIX_EPOCH,
+                kind: value.kind.into(),
+                perm: value.perm,
+                nlink: value.nlink,
+                uid: value.uid,
+                gid: value.gid,
+                rdev: value.rdev,
+                blksize: value.blksize,
+                padding: 0,
+                flags: 0,
+            }
+        }
+    }
+
+}
+
+
+#[cfg(feature = "rvfs")]
+mod impl_rvfs{
+    use rvfs::inode::InodeMode;
+    use crate::common::DbfsFileType;
+
+    impl From<DbfsFileType> for InodeMode{
+        fn from(value: DbfsFileType) -> Self {
+            match value {
+                DbfsFileType::Directory => InodeMode::S_DIR,
+                DbfsFileType::RegularFile => InodeMode::S_FILE,
+                DbfsFileType::Symlink => InodeMode::S_SYMLINK,
+                _ => panic!("Invalid file type"),
+            }
+        }
+    }
+}

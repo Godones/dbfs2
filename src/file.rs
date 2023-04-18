@@ -1,15 +1,17 @@
-use crate::{clone_db, usize};
+use crate::{clone_db, u16, usize};
 use alloc::borrow::ToOwned;
-use alloc::string::ToString;
+
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::{format, vec};
+use alloc::string::ToString;
 use core::cmp::{max, min};
-use core::fmt::write;
+
 use rvfs::dentry::DirContext;
 use rvfs::file::{File, FileOps};
-use rvfs::{info, warn, StrResult};
-use spin::Mutex;
+use rvfs::{warn, StrResult};
+use crate::common::{DbfsDirEntry, DbfsFileType, DbfsPermission};
+
 
 pub const DBFS_DIR_FILE_OPS: FileOps = {
     let mut ops = FileOps::empty();
@@ -34,13 +36,13 @@ fn dbfs_file_write(file: Arc<File>, buf: &[u8], offset: u64) -> StrResult<usize>
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
-    dbfs_file_write_inner(numer, buf, offset)
+    dbfs_common_write(numer, buf, offset)
 }
 fn dbfs_file_read(file: Arc<File>, buf: &mut [u8], offset: u64) -> StrResult<usize> {
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
-    dbfs_file_read_inner(numer, buf, offset)
+    dbfs_common_read(numer, buf, offset)
 }
 
 /// the file data in dbfs is stored as a set of key-value pairs
@@ -48,13 +50,14 @@ fn dbfs_file_read(file: Arc<File>, buf: &mut [u8], offset: u64) -> StrResult<usi
 /// * data2: \[u8;512]
 /// * ....
 /// * datai: \[u8;512]
-fn dbfs_file_read_inner(number: usize, buf: &mut [u8], offset: u64) -> StrResult<usize> {
+pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> StrResult<usize> {
     let db = clone_db();
     let tx = db.tx(false).unwrap();
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let size = bucket.get_kv("size").unwrap();
     let size = usize!(size.value());
-    if offset > size as u64 {
+    warn!("read file size: {}, buf size: {}, offset:{}", size, buf.len(),offset);
+    if offset >= size as u64 {
         return Ok(0);
     }
     // warn!("read file size: {}, buf size: {}", size, buf.len());
@@ -66,7 +69,7 @@ fn dbfs_file_read_inner(number: usize, buf: &mut [u8], offset: u64) -> StrResult
         let key = format!("data{:04x}", num as u32);
         let kv = bucket.get_kv(key.as_bytes());
         if kv.is_none() {
-            break;
+            continue
         }
         let kv = kv.unwrap();
         let value = kv.value();
@@ -85,7 +88,6 @@ fn dbfs_file_read_inner(number: usize, buf: &mut [u8], offset: u64) -> StrResult
             break;
         }
     }
-    tx.commit();
     Ok(buf_offset)
 }
 
@@ -96,7 +98,7 @@ fn dbfs_file_read_inner(number: usize, buf: &mut [u8], offset: u64) -> StrResult
 /// * datai: \[u8;512]
 /// the i should be u32, because we can store 2^32 * 512 bytes in dbfs, == 2048 GB
 /// u32 == 4 bytes, 0x00000000 - 0xffffffff
-fn dbfs_file_write_inner(number: usize, buf: &[u8], offset: u64) -> StrResult<usize> {
+pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> StrResult<usize> {
     let db = clone_db();
     let tx = db.tx(true).unwrap();
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
@@ -131,7 +133,7 @@ fn dbfs_file_write_inner(number: usize, buf: &[u8], offset: u64) -> StrResult<us
     }
     let new_size = max(size, (o_offset as usize + count) as usize);
     bucket.put("size", new_size.to_be_bytes()).unwrap();
-    tx.commit();
+    tx.commit().map_err(|_|"dbfs_file_write_inner: commit failed")?;
     Ok(count)
 }
 
@@ -153,4 +155,35 @@ fn dbfs_readdir(file: Arc<File>) -> StrResult<DirContext> {
         }
     });
     Ok(DirContext::new(data))
+}
+
+
+pub fn dbfs_common_readdir(number: usize,buf:&mut Vec<DbfsDirEntry>,offset:u64) -> Result<usize, ()>{
+    let db = clone_db();
+    let tx = db.tx(false).unwrap();
+    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let mut count = 0;
+    for i in offset as usize..buf.len()+offset as usize {
+        let mut x = &mut buf[i-offset as usize];
+        let key = format!("data{}", i);
+        let value = bucket.get_kv(key.as_bytes());
+        if value.is_none() {
+            continue;
+        }
+        let value = value.unwrap();
+        count += 1;
+        let str = core::str::from_utf8(value.value()).unwrap();
+        let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
+        x.name = name[1].to_string();
+        let inode_number = name[0].parse::<usize>().unwrap();
+        x.ino = inode_number as u64;
+        x.offset = i as u64;
+        // x.kind
+        let inode = tx.get_bucket(inode_number.to_be_bytes()).unwrap();
+        let mode = inode.get_kv("mode").unwrap();
+        let mode = u16!(mode.value());
+        let perm = DbfsPermission::from_bits_truncate(mode);
+        x.kind = DbfsFileType::from(perm);
+    }
+    Ok(count)
 }

@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use core::cmp::min;
 use dbop::{Operate, OperateSet};
 use jammdb::{Bucket, Data};
-use preprint::{pprint, pprintln};
+use preprint::{pprintln};
 use rvfs::{info, warn, StrResult};
 
 /// bucket: root:key1:key2:key3
@@ -49,7 +49,7 @@ fn execute_operate_real(bucket: Bucket, operate: Box<OperateSet>) -> isize {
                     }
                     Data::Bucket(bucket_name) => {
                         let new_bucket = bucket.create_bucket(new_key.clone()).unwrap();
-                        let mut old_bucket = bucket.get_bucket(bucket_name).unwrap();
+                        let old_bucket = bucket.get_bucket(bucket_name).unwrap();
                         copy_bucket_data_recursive(old_bucket, new_bucket);
                         bucket.delete_bucket(old_key).unwrap();
                     }
@@ -76,7 +76,7 @@ fn execute_operate_real(bucket: Bucket, operate: Box<OperateSet>) -> isize {
                 }
             }
             Operate::Read(operate) => {
-                let mut buf = unsafe {
+                let buf = unsafe {
                     core::slice::from_raw_parts_mut(operate.buf_addr as *mut u8, operate.buf_size)
                 };
                 let mut offset = 0;
@@ -109,7 +109,7 @@ fn copy_bucket_data_recursive<'a, 'tx>(old_bucket: Bucket<'a, 'tx>, new_bucket: 
         }
         Data::Bucket(bucket_name) => {
             let new_bucket = new_bucket.create_bucket(bucket_name.clone()).unwrap();
-            let mut old_bucket = old_bucket.get_bucket(bucket_name).unwrap();
+            let old_bucket = old_bucket.get_bucket(bucket_name).unwrap();
             copy_bucket_data_recursive(old_bucket, new_bucket);
         }
     })

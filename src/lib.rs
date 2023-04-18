@@ -1,5 +1,4 @@
-#![no_std]
-#![allow(unused)]
+#![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
 mod dir;
@@ -10,11 +9,16 @@ mod inode;
 use alloc::sync::Arc;
 use core::ops::{Deref, DerefMut};
 use jammdb::DB;
-use rvfs::StrResult;
+
 use spin::Once;
 
 pub use fs_type::DBFS;
 pub mod extend;
+
+#[cfg(feature = "fuse")]
+pub mod fuse;
+
+mod common;
 
 struct SafeDb(DB);
 
@@ -51,9 +55,23 @@ macro_rules! u32 {
         u32::from_be_bytes($x.try_into().unwrap())
     };
 }
+
+#[macro_export]
+macro_rules! u16 {
+    ($x:expr) => {
+        u16::from_be_bytes($x.try_into().unwrap())
+    };
+}
+
 #[macro_export]
 macro_rules! usize {
     ($x:expr) => {
         usize::from_be_bytes($x.try_into().unwrap())
+    };
+}
+#[macro_export]
+macro_rules! u64 {
+    ($x:expr) => {
+        u64::from_be_bytes($x.try_into().unwrap())
     };
 }

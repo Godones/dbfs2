@@ -2,7 +2,7 @@ use dbfs2::DBFS;
 use jammdb::memfile::{FakeMap, FileOpenOptions};
 use jammdb::DB;
 use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_readdir, FileMode, OpenFlags};
-use rvfs::link::vfs_link;
+use rvfs::link::{vfs_link};
 use rvfs::mount::{do_mount, MountFlags};
 use rvfs::superblock::register_filesystem;
 use rvfs::{init_process_info, FakeFSC};
@@ -16,15 +16,15 @@ fn main() {
     let mnt = rvfs::mount_rootfs();
     init_process_info(mnt);
     register_filesystem(DBFS).unwrap();
-    let file = vfs_open_file::<FakeFSC>("/", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
+    let _file = vfs_open_file::<FakeFSC>("/", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
     vfs_mkdir::<FakeFSC>("/db", FileMode::FMODE_WRITE).unwrap();
-    let file = vfs_open_file::<FakeFSC>(
+    let _file = vfs_open_file::<FakeFSC>(
         "/file1",
         OpenFlags::O_RDWR | OpenFlags::O_CREAT,
         FileMode::FMODE_WRITE,
     )
     .unwrap();
-    let db = do_mount::<FakeFSC>("block", "/db", "dbfs", MountFlags::empty(), None).unwrap();
+    let _db = do_mount::<FakeFSC>("block", "/db", "dbfs", MountFlags::empty(), None).unwrap();
 
     let f1_file = vfs_open_file::<FakeFSC>(
         "/db/f1",
@@ -40,6 +40,13 @@ fn main() {
     vfs_readdir(root.clone()).unwrap().for_each(|x| {
         println!("{:#?}", x);
     });
+
+    // let mut buf = [0u8; 32];
+    // vfs_readlink::<FakeFSC>("db/f3", &mut buf).unwrap();
+    // let f3 = vfs_open_file::<FakeFSC>("/db/f3", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
+    // println!("{:#?}", f3);
+
+    println!("{:#?}",root);
 }
 
 fn init_db(db: &DB) {
@@ -48,5 +55,6 @@ fn init_db(db: &DB) {
     bucket.put("continue_number", 0usize.to_le_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_le_bytes()).unwrap();
     bucket.put("blk_size", 512u32.to_le_bytes()).unwrap();
+    bucket.put("disk_size", (1024*1024*16u64).to_be_bytes()).unwrap(); //16MB
     tx.commit().unwrap()
 }
