@@ -2,14 +2,13 @@ use alloc::string::String;
 
 use bitflags::bitflags;
 
-#[derive(Debug,Default,Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct DbfsDirEntry {
     pub ino: u64,
     pub offset: u64,
     pub kind: DbfsFileType,
     pub name: String,
 }
-
 
 bitflags! {
     #[derive(Copy, Clone)]
@@ -39,9 +38,8 @@ bitflags! {
     }
 }
 
-
-#[derive(Debug,Copy, Clone)]
-pub enum DbfsFileType{
+#[derive(Debug, Copy, Clone)]
+pub enum DbfsFileType {
     NamedPipe,
     /// Character device (S_IFCHR)
     CharDevice,
@@ -57,7 +55,7 @@ pub enum DbfsFileType{
     Socket,
 }
 
-impl Default for DbfsFileType{
+impl Default for DbfsFileType {
     fn default() -> Self {
         DbfsFileType::RegularFile
     }
@@ -85,7 +83,7 @@ impl From<DbfsPermission> for DbfsFileType {
     }
 }
 
-impl From<&[u8]> for DbfsFileType{
+impl From<&[u8]> for DbfsFileType {
     fn from(value: &[u8]) -> Self {
         match value {
             b"p" => DbfsFileType::NamedPipe,
@@ -100,32 +98,37 @@ impl From<&[u8]> for DbfsFileType{
     }
 }
 
-
-#[derive(Debug,Copy, Clone,Default)]
-pub struct DbfsTimeSpec{
+#[derive(Debug, Copy, Clone, Default)]
+pub struct DbfsTimeSpec {
     pub sec: u64,
     pub nsec: u32,
 }
 
-impl Into<usize> for DbfsTimeSpec{
+impl Into<usize> for DbfsTimeSpec {
     fn into(self) -> usize {
-        self.sec as usize * 1000 + self.nsec as usize / 1000000
+        self.sec as usize + (self.nsec as usize) / 1000
     }
 }
 
-
+impl From<usize> for DbfsTimeSpec {
+    fn from(value: usize) -> Self {
+        let sec = value as u64;
+        let nsec = (value % 1000) as u32;
+        Self{
+            sec,
+            nsec,
+        }
+    }
+}
 impl DbfsTimeSpec {
     #[allow(unused)]
     pub fn new(sec: u64, nsec: u32) -> Self {
         Self { sec, nsec }
     }
-    pub fn from_sec(sec: u64) -> Self {
-        Self { sec, nsec: 0 }
-    }
 }
 
 #[derive(Debug)]
-pub struct DbfsAttr{
+pub struct DbfsAttr {
     /// Inode number
     pub ino: usize,
     /// Size in bytes
@@ -141,7 +144,7 @@ pub struct DbfsAttr{
     /// Time of creation (macOS only)
     pub crtime: DbfsTimeSpec,
     /// Kind of file (directory, file, pipe, etc)
-    pub kind: DbfsFileType ,
+    pub kind: DbfsFileType,
     /// Permissions
     pub perm: u16,
     /// Number of hard links
@@ -160,16 +163,14 @@ pub struct DbfsAttr{
     pub flags: u32,
 }
 
-
-
 #[cfg(feature = "fuse")]
 mod impl_fuse {
     extern crate std;
     use super::*;
-    use std::time::SystemTime;
     use fuser::{FileAttr, FileType};
+    use std::time::SystemTime;
 
-    impl From<DbfsFileType> for FileType{
+    impl From<DbfsFileType> for FileType {
         fn from(value: DbfsFileType) -> Self {
             match value {
                 DbfsFileType::NamedPipe => FileType::NamedPipe,
@@ -199,15 +200,15 @@ mod impl_fuse {
         }
     }
 
-    impl From<DbfsAttr> for FileAttr{
+    impl From<DbfsAttr> for FileAttr {
         fn from(value: DbfsAttr) -> Self {
-            FileAttr{
+            FileAttr {
                 ino: value.ino as u64,
                 size: value.size as u64,
                 blocks: value.blocks as u64,
-                atime:  SystemTime::from(value.atime),
-                mtime:  SystemTime::from(value.mtime),
-                ctime:  SystemTime::from(value.ctime),
+                atime: SystemTime::from(value.atime),
+                mtime: SystemTime::from(value.mtime),
+                ctime: SystemTime::from(value.ctime),
                 crtime: SystemTime::UNIX_EPOCH,
                 kind: value.kind.into(),
                 perm: value.perm,
@@ -221,16 +222,14 @@ mod impl_fuse {
             }
         }
     }
-
 }
 
-
 #[cfg(feature = "rvfs")]
-mod impl_rvfs{
-    use rvfs::inode::InodeMode;
+mod impl_rvfs {
     use crate::common::DbfsFileType;
+    use rvfs::inode::InodeMode;
 
-    impl From<DbfsFileType> for InodeMode{
+    impl From<DbfsFileType> for InodeMode {
         fn from(value: DbfsFileType) -> Self {
             match value {
                 DbfsFileType::Directory => InodeMode::S_DIR,

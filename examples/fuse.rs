@@ -1,11 +1,11 @@
-use clap::{Arg, Command, crate_version};
-use fuser::MountOption;
+use clap::{crate_version, Arg, Command};
 use dbfs2::fuse::inode::dbfs_fuse_getattr;
-use dbfs2::fuse::{DbfsFuse, init_dbfs_fuse};
+use dbfs2::fuse::{init_dbfs_fuse, DbfsFuse};
+use fuser::MountOption;
 
-fn test(){
+fn test() {
     env_logger::init();
-    init_dbfs_fuse("./test.dbfs",64*1024*1024);
+    init_dbfs_fuse("./test.dbfs", 64 * 1024 * 1024);
     let attr = dbfs_fuse_getattr(0).unwrap();
     println!("attr: {:#?}", attr);
 }
@@ -33,8 +33,7 @@ fn fuse() {
         .get_matches();
 
     env_logger::init();
-    init_dbfs_fuse("./test.dbfs",64*1024*1024);
-
+    init_dbfs_fuse("./test.dbfs", 64 * 1024 * 1024);
 
     let mountpoint = matches.value_of("MOUNT_POINT").unwrap();
     let mut options = vec![MountOption::FSName("dbfs".to_string())];
@@ -53,7 +52,7 @@ fn fuse() {
     fuser::mount2(fs, mountpoint, &options).unwrap();
 }
 
-fn main(){
+fn main() {
     // test();
     fuse();
 }

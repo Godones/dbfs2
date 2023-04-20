@@ -2,7 +2,7 @@ use crate::file::{DBFS_DIR_FILE_OPS, DBFS_FILE_FILE_OPS, DBFS_SYMLINK_FILE_OPS};
 use crate::{clone_db, u16, u32, u64, usize};
 use alloc::borrow::ToOwned;
 use alloc::format;
-use alloc::string::{ToString};
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::cmp::min;
@@ -10,11 +10,11 @@ use core::sync::atomic::AtomicUsize;
 use rvfs::dentry::{DirEntry, LookUpData};
 use rvfs::file::{FileMode, FileOps};
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode, InodeOps};
-use rvfs::{ddebug, StrResult, warn};
+use rvfs::{ddebug, warn, StrResult};
 
 use crate::common::{DbfsAttr, DbfsFileType, DbfsPermission, DbfsTimeSpec};
 
-pub static DBFS_INODE_NUMBER: AtomicUsize = AtomicUsize::new(0);
+pub static DBFS_INODE_NUMBER: AtomicUsize = AtomicUsize::new(1);
 
 pub const DBFS_DIR_INODE_OPS: InodeOps = {
     let mut ops = InodeOps::empty();
@@ -70,7 +70,6 @@ fn dbfs_link(
     let number = dir.number;
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
 
-
     let next_number = bucket.get_kv("size".to_string()).unwrap();
     let next_number = usize!(next_number.value());
 
@@ -85,7 +84,6 @@ fn dbfs_link(
     );
     bucket.put(key, value).unwrap();
     bucket.put("size", (next_number + 1).to_be_bytes()).unwrap();
-
 
     tx.commit().unwrap();
     // update old inode data in db
@@ -155,7 +153,7 @@ fn dbfs_symlink(dir: Arc<Inode>, dentry: Arc<DirEntry>, target: &str) -> StrResu
 fn dbfs_lookup(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
     let number = dir.number;
     let name = &dentry.access_inner().d_name;
-    let res = dbfs_common_lookup(number,name).map_err(|_|"dbfs_common_lookup failed")?;
+    let res = dbfs_common_lookup(number, name).map_err(|_| "dbfs_common_lookup failed")?;
     let inode_mode = InodeMode::from(res.kind);
     // create a inode according to the data in db
     let n_inode = create_tmp_inode_from_sb_blk(
@@ -175,7 +173,7 @@ fn dbfs_lookup(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
     Ok(())
 }
 
-pub fn dbfs_common_lookup(dir:usize,name:&str)->Result<DbfsAttr,()>{
+pub fn dbfs_common_lookup(dir: usize, name: &str) -> Result<DbfsAttr, ()> {
     let db = clone_db();
     let tx = db.tx(false).unwrap();
     let bucket = tx.get_bucket(dir.to_be_bytes()).unwrap();
@@ -193,7 +191,7 @@ pub fn dbfs_common_lookup(dir:usize,name:&str)->Result<DbfsAttr,()>{
     dbfs_common_attr(number)
 }
 
-pub fn dbfs_common_attr(number:usize)->Result<DbfsAttr, ()>{
+pub fn dbfs_common_attr(number: usize) -> Result<DbfsAttr, ()> {
     let db = clone_db();
     let tx = db.tx(false).unwrap();
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
@@ -201,9 +199,9 @@ pub fn dbfs_common_attr(number:usize)->Result<DbfsAttr, ()>{
     let size = usize!(size.value());
 
     let mode = bucket.get_kv("mode").unwrap();
-    let mode =  u16!(mode.value());
+    let mode = u16!(mode.value());
     let mode = DbfsPermission::from_bits(mode).unwrap();
-    let file_type= DbfsFileType::from(mode);
+    let file_type = DbfsFileType::from(mode);
 
     let n_links = bucket.get_kv("hard_links").unwrap();
     let n_links = u32!(n_links.value());
@@ -225,13 +223,13 @@ pub fn dbfs_common_attr(number:usize)->Result<DbfsAttr, ()>{
     let ctime = usize!(ctime.value());
 
     // fill dbfs_attr
-    let dbfs_attr = DbfsAttr{
+    let dbfs_attr = DbfsAttr {
         ino: number,
         size,
         blocks,
-        atime: DbfsTimeSpec::from_sec(atime as u64),
-        mtime: DbfsTimeSpec::from_sec(mtime as u64),
-        ctime: DbfsTimeSpec::from_sec(ctime as u64),
+        atime: DbfsTimeSpec::from(atime),
+        mtime: DbfsTimeSpec::from(mtime),
+        ctime: DbfsTimeSpec::from(ctime),
         crtime: DbfsTimeSpec::default(),
         kind: file_type,
         perm: mode.bits(),
@@ -412,7 +410,9 @@ fn dbfs_rename(
             let new_key = format!("data:{}", next_number);
             new_bucket.put(new_key, new_value).unwrap();
             // update size
-            new_bucket.put("size", (next_number + 1).to_string()).unwrap();
+            new_bucket
+                .put("size", (next_number + 1).to_string())
+                .unwrap();
 
             old_dir.access_inner().file_size -= 1;
             new_dir.access_inner().file_size += 1;
@@ -424,8 +424,7 @@ fn dbfs_rename(
     Ok(())
 }
 
-
-fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()>{
+fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()> {
     let db = clone_db();
     let tx = db.tx(true).unwrap();
     let number = inode.number;
@@ -435,7 +434,7 @@ fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()>{
     let start = f_size / 512;
     let offset = f_size % 512;
 
-    let current_size= bucket.get_kv("size").unwrap();
+    let current_size = bucket.get_kv("size").unwrap();
     let current_size = usize!(current_size.value());
     // if current file size < f_size, allocate new blocks
     // if current file size > f_size, free blocks
@@ -449,27 +448,29 @@ fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()>{
         let disk_size = sb_blk.get_kv("disk_size").unwrap();
         let disk_size = u64!(disk_size.value());
         let gap = f_size - current_size; // newsize - oldsize
-        if disk_size < gap as u64{
+        if disk_size < gap as u64 {
             return Err("dbfs_truncate: disk size is not enough");
         }
         let new_disk_size = disk_size - gap as u64;
-        sb_blk.put("disk_size", new_disk_size.to_be_bytes()).unwrap();
+        sb_blk
+            .put("disk_size", new_disk_size.to_be_bytes())
+            .unwrap();
     } else if current_block >= start {
         // we need to free blocks
-        for i in start+1..=current_block {
-            let key = format!("data{:04x}",i);
-            if bucket.get_kv(&key).is_some(){
+        for i in start + 1..=current_block {
+            let key = format!("data{:04x}", i);
+            if bucket.get_kv(&key).is_some() {
                 bucket.delete(&key).unwrap();
             }
         }
         //
-        let start_key = format!("data{:04x}",start);
+        let start_key = format!("data{:04x}", start);
         let value = bucket.get_kv(&start_key);
-        if value.is_some(){
+        if value.is_some() {
             let value = value.unwrap();
             let mut value = value.value().to_vec();
             // set the data in offset to 0
-            for i in offset..512{
+            for i in offset..512 {
                 value[i] = 0;
             }
             bucket.put(start_key, value).unwrap();
@@ -479,7 +480,9 @@ fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()>{
         let disk_size = u64!(disk_size.value());
         let additional_size = (current_block - start) * 512; // 1 - 0
         let new_disk_size = disk_size + additional_size as u64;
-        sb_blk.put("disk_size", new_disk_size.to_be_bytes()).unwrap();
+        sb_blk
+            .put("disk_size", new_disk_size.to_be_bytes())
+            .unwrap();
     }
     bucket.put("size", f_size.to_be_bytes()).unwrap();
     warn!("dbfs_truncate: set size to {}", f_size);
@@ -487,7 +490,7 @@ fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()>{
     Ok(())
 }
 
-pub fn permission_from_mode(_mode:FileMode,inode_mode:InodeMode)->DbfsPermission{
+pub fn permission_from_mode(_mode: FileMode, inode_mode: InodeMode) -> DbfsPermission {
     // we don't use mode now,make all permission to true
     let mut permission = DbfsPermission::from_bits_truncate(0x777);
     match inode_mode {
@@ -508,9 +511,9 @@ fn dbfs_rvfs_create(
 ) -> StrResult<()> {
     let dir_number = dir.number;
     let name = dentry.access_inner().d_name.to_owned();
-    let permission = permission_from_mode(mode,inode_mode);
+    let permission = permission_from_mode(mode, inode_mode);
 
-    let new_number = dbfs_common_create(dir_number,&name,0,0,0,permission,target_path)
+    let new_number = dbfs_common_create(dir_number, &name, 0, 0, 0, permission, target_path)
         .map_err(|_| "dbfs_rvfs_create: dbfs_common_create failed")?;
 
     let n_inode = create_tmp_inode_from_sb_blk(
@@ -531,9 +534,16 @@ fn dbfs_rvfs_create(
     Ok(())
 }
 
-
 ///
-pub fn dbfs_common_create(dir:usize,name:&str,uid:u32,gid:u32,c_time:usize,permission:DbfsPermission,target_path:Option<&str>)->Result<usize,()>{
+pub fn dbfs_common_create(
+    dir: usize,
+    name: &str,
+    uid: u32,
+    gid: u32,
+    c_time: usize,
+    permission: DbfsPermission,
+    target_path: Option<&str>,
+) -> Result<usize, ()> {
     ddebug!("dbfs_common_create");
     let new_number = DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
     let db = clone_db();
@@ -547,25 +557,27 @@ pub fn dbfs_common_create(dir:usize,name:&str,uid:u32,gid:u32,c_time:usize,permi
     // update the size of the dir
     parent.put("size", (next_number + 1).to_be_bytes()).unwrap();
 
-
     let key = format!("data{}", next_number);
     let value = format!("{}:{}", name, new_number);
     parent.put(key, value).unwrap(); // add a new entry to the dir
 
     // create a new inode
+    warn!("dbfs_common_create: create a new inode {}", new_number);
     let new_inode = tx.create_bucket(new_number.to_be_bytes()).unwrap();
 
     // set the mode of inode
-    new_inode.put("mode", permission.bits().to_be_bytes()).unwrap();
+    new_inode
+        .put("mode", permission.bits().to_be_bytes())
+        .unwrap();
     // set the size of inode to 0
 
     if permission.contains(DbfsPermission::S_IFDIR) {
         new_inode.put("next_number", 0usize.to_be_bytes()).unwrap();
         new_inode.put("hard_links", 2u32.to_be_bytes()).unwrap();
-        let dot = format!("data{}",0);
+        let dot = format!("data{}", 0);
         let dot_value = format!("{}:{}", ".", new_number);
         new_inode.put(dot, dot_value).unwrap();
-        let dotdot = format!("data{}",1);
+        let dotdot = format!("data{}", 1);
         let dotdot_value = format!("{}:{}", "..", dir);
         new_inode.put(dotdot, dotdot_value).unwrap();
         new_inode.put("size", 2usize.to_be_bytes()).unwrap();
@@ -589,10 +601,6 @@ pub fn dbfs_common_create(dir:usize,name:&str,uid:u32,gid:u32,c_time:usize,permi
     ddebug!("dbfs_common_create end");
     Ok(new_number)
 }
-
-
-
-
 
 fn inode_ops_from_inode_mode(inode_mode: InodeMode) -> InodeOps {
     match inode_mode {

@@ -7,29 +7,31 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use core::fmt::Display;
 
-use std::path::Path;
-use std::fs::{OpenOptions};
-use downcast::_std::io::{Read, Seek, Write};
-use downcast::_std::println;
-use downcast::_std::time::SystemTime;
-use jammdb::{Bucket, Data, DB, DbFile, File, FileExt, IndexByPageID, IOResult, MemoryMap, MetaData, OpenOption, PathLike};
-use rvfs::warn;
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
 use crate::init_dbfs;
+use downcast::_std::io::{Read, Seek, Write};
+use downcast::_std::println;
+use downcast::_std::time::SystemTime;
+use jammdb::{
+    Bucket, Data, DbFile, File, FileExt, IOResult, IndexByPageID, MemoryMap, MetaData, OpenOption,
+    PathLike, DB,
+};
+use rvfs::warn;
+use std::fs::OpenOptions;
+use std::path::Path;
 
-
-struct MyOpenOptions{
-    read:bool,
-    write:bool,
-    create:bool,
+struct MyOpenOptions {
+    read: bool,
+    write: bool,
+    create: bool,
 }
-impl OpenOption for MyOpenOptions{
+impl OpenOption for MyOpenOptions {
     fn new() -> Self {
-        MyOpenOptions{
-            read:false,
-            write:false,
-            create:false,
+        MyOpenOptions {
+            read: false,
+            write: false,
+            create: false,
         }
     }
 
@@ -59,47 +61,49 @@ impl OpenOption for MyOpenOptions{
     }
 }
 
-
-pub struct FakeFile{
-    file:std::fs::File,
+pub struct FakeFile {
+    file: std::fs::File,
 }
 
-impl FakeFile{
-    pub fn new(file:std::fs::File) -> Self {
-        FakeFile{
-            file,
-        }
+impl FakeFile {
+    pub fn new(file: std::fs::File) -> Self {
+        FakeFile { file }
     }
 }
 
-
-impl core2::io::Seek for FakeFile{
+impl core2::io::Seek for FakeFile {
     fn seek(&mut self, pos: core2::io::SeekFrom) -> core2::io::Result<u64> {
         let pos = match pos {
             core2::io::SeekFrom::Start(x) => std::io::SeekFrom::Start(x),
             core2::io::SeekFrom::End(x) => std::io::SeekFrom::End(x),
             core2::io::SeekFrom::Current(x) => std::io::SeekFrom::Current(x),
         };
-        self.file.seek(pos).map_err(|_x|core2::io::Error::new(core2::io::ErrorKind::Other, "seek error"))
+        self.file
+            .seek(pos)
+            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "seek error"))
     }
 }
 
-impl core2::io::Read for FakeFile{
+impl core2::io::Read for FakeFile {
     fn read(&mut self, buf: &mut [u8]) -> core2::io::Result<usize> {
-
-        self.file.read(buf).map_err(|_x|core2::io::Error::new(core2::io::ErrorKind::Other, "read error"))
+        self.file
+            .read(buf)
+            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "read error"))
     }
 }
-impl core2::io::Write for FakeFile{
+impl core2::io::Write for FakeFile {
     fn write(&mut self, buf: &[u8]) -> core2::io::Result<usize> {
-        self.file.write(buf).map_err(|_x|core2::io::Error::new(core2::io::ErrorKind::Other, "write error"))
+        self.file
+            .write(buf)
+            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "write error"))
     }
 
     fn flush(&mut self) -> core2::io::Result<()> {
-        self.file.flush().map_err(|_x|core2::io::Error::new(core2::io::ErrorKind::Other, "flush error"))
+        self.file
+            .flush()
+            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "flush error"))
     }
 }
-
 
 impl FileExt for FakeFile {
     fn lock_exclusive(&self) -> IOResult<()> {
@@ -107,7 +111,9 @@ impl FileExt for FakeFile {
     }
 
     fn allocate(&mut self, new_size: u64) -> IOResult<()> {
-        self.file.set_len(new_size).map_err(|_x|core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"))
+        self.file
+            .set_len(new_size)
+            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"))
     }
 
     fn unlock(&self) -> IOResult<()> {
@@ -115,15 +121,18 @@ impl FileExt for FakeFile {
     }
 
     fn metadata(&self) -> IOResult<MetaData> {
-        let meta = self.file.metadata()
-            .map(|x|MetaData{
-                len: x.len() ,
-            }).map_err(|_x|core2::io::Error::new(core2::io::ErrorKind::Other, "metadata error"))?;
+        let meta = self
+            .file
+            .metadata()
+            .map(|x| MetaData { len: x.len() })
+            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "metadata error"))?;
         Ok(meta)
     }
 
     fn sync_all(&self) -> IOResult<()> {
-        self.file.sync_all().map_err(|_x|core2::io::Error::new(core2::io::ErrorKind::Other, "sync_all error"))
+        self.file
+            .sync_all()
+            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "sync_all error"))
     }
 
     /// no meaning
@@ -139,10 +148,9 @@ impl FileExt for FakeFile {
 
 impl DbFile for FakeFile {}
 
-
 #[derive(Debug)]
-struct FakePath{
-    path:std::path::PathBuf,
+struct FakePath {
+    path: std::path::PathBuf,
 }
 
 impl Display for FakePath {
@@ -151,19 +159,18 @@ impl Display for FakePath {
     }
 }
 
-impl PathLike for FakePath{
+impl PathLike for FakePath {
     fn exists(&self) -> bool {
         self.path.exists()
     }
 }
 
-
 struct FakeMMap;
 
-struct IndexByPageIDImpl{
-    map:memmap2::Mmap,
+struct IndexByPageIDImpl {
+    map: memmap2::Mmap,
 }
-impl MemoryMap for FakeMMap{
+impl MemoryMap for FakeMMap {
     fn do_map(&self, file: &mut File) -> IOResult<Arc<dyn IndexByPageID>> {
         let file = &file.file;
         let fake_file = file.downcast_ref::<FakeFile>().unwrap();
@@ -171,12 +178,13 @@ impl MemoryMap for FakeMMap{
 
         if res.is_err() {
             warn!("mmap res: {:?}", res);
-            return Err(core2::io::Error::new(core2::io::ErrorKind::Other,"not support"));
+            return Err(core2::io::Error::new(
+                core2::io::ErrorKind::Other,
+                "not support",
+            ));
         }
         let map = res.unwrap();
-        Ok(Arc::new(IndexByPageIDImpl{
-            map,
-        }))
+        Ok(Arc::new(IndexByPageIDImpl { map }))
     }
 }
 
@@ -205,21 +213,19 @@ impl IndexByPageID for IndexByPageIDImpl {
     }
 }
 
-
-pub fn init_dbfs_fuse<T:AsRef<Path>>(path:T,size:u64){
+pub fn init_dbfs_fuse<T: AsRef<Path>>(path: T, size: u64) {
     let path = path.as_ref().to_str().unwrap();
-    let db = DB::open::<MyOpenOptions,_>(Arc::new(FakeMMap),path).unwrap();
-    init_db(&db,size);
+    let db = DB::open::<MyOpenOptions, _>(Arc::new(FakeMMap), path).unwrap();
+    init_db(&db, size);
     test_dbfs(&db);
     init_dbfs(db);
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
     let time = DbfsTimeSpec::from(SystemTime::now());
-    dbfs_common_root_inode(uid,gid, time.into()).unwrap();
+    dbfs_common_root_inode(uid, gid, time.into()).unwrap();
 }
 
-
-fn init_db(db: &DB,size:u64) {
+fn init_db(db: &DB, size: u64) {
     let tx = db.tx(true).unwrap();
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 0usize.to_be_bytes()).unwrap();
@@ -229,8 +235,7 @@ fn init_db(db: &DB,size:u64) {
     tx.commit().unwrap()
 }
 
-
-fn test_dbfs(db:&DB){
+fn test_dbfs(db: &DB) {
     let tx = db.tx(true).unwrap();
     tx.buckets().for_each(|(name, x)| {
         let key = name.name();

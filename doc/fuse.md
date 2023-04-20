@@ -10,3 +10,7 @@
 [ext4fuse](https://github.com/gerard/ext4fuse)
 
 [fuse解析](https://www.zido.site/blog/2021-11-27-filesystem-in-user-space/)
+
+https://man7.org/linux/man-pages/man7/inode.7.html
+
+http://libfuse.github.io/doxygen/structfuse__operations.html#a8f5349c22f360bda57ff10d10486d148

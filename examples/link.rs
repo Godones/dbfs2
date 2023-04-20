@@ -2,7 +2,7 @@ use dbfs2::DBFS;
 use jammdb::memfile::{FakeMap, FileOpenOptions};
 use jammdb::DB;
 use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_readdir, FileMode, OpenFlags};
-use rvfs::link::{vfs_link};
+use rvfs::link::vfs_link;
 use rvfs::mount::{do_mount, MountFlags};
 use rvfs::superblock::register_filesystem;
 use rvfs::{init_process_info, FakeFSC};
@@ -46,7 +46,7 @@ fn main() {
     // let f3 = vfs_open_file::<FakeFSC>("/db/f3", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
     // println!("{:#?}", f3);
 
-    println!("{:#?}",root);
+    println!("{:#?}", root);
 }
 
 fn init_db(db: &DB) {
@@ -55,6 +55,8 @@ fn init_db(db: &DB) {
     bucket.put("continue_number", 0usize.to_le_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_le_bytes()).unwrap();
     bucket.put("blk_size", 512u32.to_le_bytes()).unwrap();
-    bucket.put("disk_size", (1024*1024*16u64).to_be_bytes()).unwrap(); //16MB
+    bucket
+        .put("disk_size", (1024 * 1024 * 16u64).to_be_bytes())
+        .unwrap(); //16MB
     tx.commit().unwrap()
 }

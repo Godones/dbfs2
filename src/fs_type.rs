@@ -1,11 +1,13 @@
 use crate::file::DBFS_DIR_FILE_OPS;
-use crate::inode::{DBFS_DIR_INODE_OPS, DBFS_INODE_NUMBER, permission_from_mode};
+use crate::inode::{permission_from_mode, DBFS_DIR_INODE_OPS, DBFS_INODE_NUMBER};
 use crate::{clone_db, u32, usize};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::sync::{Arc, Weak};
 use alloc::{format, vec};
+use log::warn;
 use rvfs::dentry::{DirEntry, DirEntryOps, DirFlags};
+use rvfs::file::FileMode;
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode};
 use rvfs::mount::MountFlags;
 use rvfs::superblock::{
@@ -13,9 +15,7 @@ use rvfs::superblock::{
     SuperBlockInner, SuperBlockOps,
 };
 use rvfs::{ddebug, StrResult};
-use rvfs::file::FileMode;
 use spin::Mutex;
-
 
 pub const DBFS: FileSystemType = FileSystemType {
     name: "dbfs",
@@ -40,7 +40,7 @@ fn dbfs_sync_fs(_sb_blk: Arc<SuperBlock>) -> StrResult<()> {
     bucket
         .put("continue_number".as_bytes(), continue_number.to_be_bytes())
         .unwrap();
-    tx.commit().map_err(|_|"dbfs_sync_fs error")?;
+    tx.commit().map_err(|_| "dbfs_sync_fs error")?;
     Ok(())
 }
 
@@ -123,13 +123,13 @@ fn dbfs_fill_super_block(sb_blk: Arc<SuperBlock>) -> StrResult<()> {
 
 // create root inode for dbfs
 fn dbfs_create_root_inode(sb_blk: Arc<SuperBlock>) -> StrResult<Arc<Inode>> {
-    let count = dbfs_common_root_inode(0,0,0)?;
-    let first_number = DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-    assert_eq!(first_number, 0);
+    let count = dbfs_common_root_inode(0, 0, 0)?;
+    let first_number = DBFS_INODE_NUMBER.load(core::sync::atomic::Ordering::SeqCst);
+    assert_eq!(first_number, 2);
     // create a inode from super block
     let inode = create_tmp_inode_from_sb_blk(
         sb_blk.clone(),
-        first_number,
+        first_number - 1,
         InodeMode::S_DIR,
         0,
         DBFS_DIR_INODE_OPS,
@@ -142,14 +142,16 @@ fn dbfs_create_root_inode(sb_blk: Arc<SuperBlock>) -> StrResult<Arc<Inode>> {
     Ok(inode)
 }
 
-pub fn dbfs_common_root_inode(uid:u32,gid:u32,ctime:usize)->Result<usize,&'static str>{
+pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: usize) -> Result<usize, &'static str> {
     let db = clone_db();
     let tx = db.tx(true).unwrap();
-    if tx.get_bucket(0usize.to_be_bytes()).is_err() {
-        let permission = permission_from_mode(FileMode::FMODE_RDWR,InodeMode::S_DIR);
-
-        let new_inode = tx.create_bucket(0usize.to_be_bytes()).unwrap();
-        new_inode.put("mode", permission.bits().to_be_bytes()).unwrap();
+    if tx.get_bucket(1usize.to_be_bytes()).is_err() {
+        let permission = permission_from_mode(FileMode::FMODE_RDWR, InodeMode::S_DIR);
+        let new_inode = tx.create_bucket(1usize.to_be_bytes()).unwrap();
+        DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        new_inode
+            .put("mode", permission.bits().to_be_bytes())
+            .unwrap();
         // set the size of inode to 0
         // new_inode.put("size", 0usize.to_be_bytes()).unwrap();
         new_inode.put("hard_links", 0u32.to_be_bytes()).unwrap();
@@ -160,25 +162,15 @@ pub fn dbfs_common_root_inode(uid:u32,gid:u32,ctime:usize)->Result<usize,&'stati
         new_inode.put("mtime", ctime.to_be_bytes()).unwrap();
         new_inode.put("ctime", ctime.to_be_bytes()).unwrap();
         new_inode.put("block_size", 512u32.to_be_bytes()).unwrap();
-
-        new_inode.put("next_number",0usize.to_be_bytes()).unwrap();
-
-        let dot = format!("data{}",0);
-        let dot_value = format!("{}:{}", ".", 0);
-        new_inode.put(dot, dot_value).unwrap();
-        let dotdot = format!("data{}",1);
-        let dotdot_value = format!("{}:{}", "..", 0);
-        new_inode.put(dotdot, dotdot_value).unwrap();
-        new_inode.put("size", 2usize.to_be_bytes()).unwrap();
+        new_inode.put("next_number", 0usize.to_be_bytes()).unwrap();
+        new_inode.put("size", 0usize.to_be_bytes()).unwrap();
     }
-    let bucket = tx.get_bucket(0usize.to_be_bytes()).unwrap();
+    let bucket = tx.get_bucket(1usize.to_be_bytes()).unwrap();
     let count = bucket.get_kv("size").unwrap();
     let count = usize!(count.value());
     tx.commit().map_err(|_| "create root false")?;
     Ok(count)
 }
-
-
 
 fn dbfs_create_root_dentry(inode: Arc<Inode>) -> StrResult<Arc<DirEntry>> {
     let dentry = DirEntry::new(
