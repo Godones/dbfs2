@@ -1,7 +1,7 @@
 use dbfs2::DBFS;
 use jammdb::memfile::{FakeMap, FileOpenOptions};
 use jammdb::DB;
-use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_write_file, FileMode, OpenFlags, vfs_read_file};
+use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_read_file, vfs_write_file, FileMode, OpenFlags};
 use rvfs::mount::{do_mount, MountFlags};
 use rvfs::superblock::register_filesystem;
 use rvfs::{init_process_info, FakeFSC};
@@ -35,7 +35,7 @@ fn main() {
 
     println!("write to file 1MB");
     let mut buf = [0; 1024];
-    for i in 0..1024{
+    for i in 0..1024 {
         buf[i] = i as u8;
     }
     for i in 0..1 {
@@ -43,9 +43,9 @@ fn main() {
     }
     // let res = vfs_llseek(f1_file.clone(),SeekFrom::Start(0)).unwrap();
     // println!("seek to 0, res:{}",res);
-    let mut  read_buf  = [0;1024];
-    let read = vfs_read_file::<FakeFSC>(f1_file.clone(),&mut read_buf,0).unwrap();
-    println!("read:{}",read);
+    let mut read_buf = [0; 1024];
+    let read = vfs_read_file::<FakeFSC>(f1_file.clone(), &mut read_buf, 0).unwrap();
+    println!("read:{}", read);
     assert_eq!(buf, read_buf);
 }
 fn init_db(db: &DB) {

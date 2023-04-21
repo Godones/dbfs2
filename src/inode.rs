@@ -492,7 +492,7 @@ fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()> {
 
 pub fn permission_from_mode(_mode: FileMode, inode_mode: InodeMode) -> DbfsPermission {
     // we don't use mode now,make all permission to true
-    let mut permission = DbfsPermission::from_bits_truncate(0x777);
+    let mut permission = DbfsPermission::from_bits_truncate(0o777);
     match inode_mode {
         InodeMode::S_FILE => permission |= DbfsPermission::S_IFREG,
         InodeMode::S_DIR => permission |= DbfsPermission::S_IFDIR,
@@ -513,12 +513,12 @@ fn dbfs_rvfs_create(
     let name = dentry.access_inner().d_name.to_owned();
     let permission = permission_from_mode(mode, inode_mode);
 
-    let new_number = dbfs_common_create(dir_number, &name, 0, 0, 0, permission, target_path)
+    let attr = dbfs_common_create(dir_number, &name, 0, 0, 0, permission, target_path)
         .map_err(|_| "dbfs_rvfs_create: dbfs_common_create failed")?;
 
     let n_inode = create_tmp_inode_from_sb_blk(
         dir.super_blk.upgrade().unwrap().clone(),
-        new_number,
+        attr.ino,
         inode_mode,
         0,
         inode_ops_from_inode_mode(inode_mode),
@@ -534,6 +534,49 @@ fn dbfs_rvfs_create(
     Ok(())
 }
 
+/// checkout the permission
+fn checkout_access(
+    p_uid: u32,
+    p_gid: u32,
+    mode: u16,
+    uid: u32,
+    gid: u32,
+    access_mask: u16,
+) -> bool {
+    if access_mask == 0 {
+        return true;
+    }
+    let permission = mode;
+    let mut access_mask = access_mask;
+    // root is allowed to read & write anything
+    if uid == 0 {
+        // root only allowed to exec if one of the X bits is set
+        access_mask &= 0o1;
+        access_mask -= access_mask & (permission >> 6);
+        access_mask -= access_mask & (permission >> 3);
+        access_mask -= access_mask & permission;
+        return access_mask == 0;
+    }
+    // check user
+    if p_uid == uid {
+        access_mask -= access_mask & (permission >> 6);
+    } else if p_gid == gid {
+        access_mask -= access_mask & (permission >> 3);
+    } else {
+        // check other
+        access_mask -= access_mask & permission;
+    }
+
+    access_mask == 0
+}
+
+fn creation_gid(p_gid: u32, p_mode: DbfsPermission, gid: u32) -> u32 {
+    if p_mode.contains(DbfsPermission::S_ISGID) {
+        return p_gid;
+    }
+    gid
+}
+
 ///
 pub fn dbfs_common_create(
     dir: usize,
@@ -543,7 +586,7 @@ pub fn dbfs_common_create(
     c_time: usize,
     permission: DbfsPermission,
     target_path: Option<&str>,
-) -> Result<usize, ()> {
+) -> Result<DbfsAttr, ()> {
     ddebug!("dbfs_common_create");
     let new_number = DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
     let db = clone_db();
@@ -551,6 +594,18 @@ pub fn dbfs_common_create(
 
     // find the dir
     let parent = tx.get_bucket(dir.to_be_bytes()).unwrap();
+
+    // check the permission
+    let p_uid = parent.get_kv("uid").unwrap();
+    let p_uid = u32!(p_uid.value());
+    let p_gid = parent.get_kv("gid").unwrap();
+    let p_gid = u32!(p_gid.value());
+    let p_mode = parent.get_kv("mode").unwrap();
+    let p_mode = u16!(p_mode.value());
+    let bool = checkout_access(p_uid, p_gid, p_mode & 0o777, uid, gid, 0o2);
+    if !bool {
+        return Err(());
+    }
 
     let next_number = parent.get_kv("size").unwrap();
     let next_number = usize!(next_number.value());
@@ -561,16 +616,43 @@ pub fn dbfs_common_create(
     let value = format!("{}:{}", name, new_number);
     parent.put(key, value).unwrap(); // add a new entry to the dir
 
+    // update dir ctime/mtime
+    parent.put("ctime", c_time.to_be_bytes()).unwrap();
+    parent.put("mtime", c_time.to_be_bytes()).unwrap();
+
+    let mut mode = permission;
+    if uid != 0 {
+        mode -= DbfsPermission::S_ISUID;
+        mode -= DbfsPermission::S_ISGID;
+    }
+
+    let p_mode = DbfsPermission::from_bits_truncate(p_mode);
+
+    {
+        if permission.contains(DbfsPermission::S_IFDIR) {
+            // for dir, set the S_ISGID bit if the parent dir has the S_ISGID bit set
+            if p_mode.contains(DbfsPermission::S_IFDIR) {
+                mode |= DbfsPermission::S_ISGID;
+            }
+        }
+    }
+
+    // set the gid of inode
+    let gid = creation_gid(p_gid, permission, gid);
+
     // create a new inode
     warn!("dbfs_common_create: create a new inode {}", new_number);
     let new_inode = tx.create_bucket(new_number.to_be_bytes()).unwrap();
 
     // set the mode of inode
-    new_inode
-        .put("mode", permission.bits().to_be_bytes())
-        .unwrap();
+    new_inode.put("mode", mode.bits().to_be_bytes()).unwrap();
     // set the size of inode to 0
 
+    let (hard_link, file_size) = if permission.contains(DbfsPermission::S_IFDIR) {
+        (2u32, 2usize)
+    } else {
+        (1u32, 0usize)
+    };
     if permission.contains(DbfsPermission::S_IFDIR) {
         new_inode.put("next_number", 0usize.to_be_bytes()).unwrap();
         new_inode.put("hard_links", 2u32.to_be_bytes()).unwrap();
@@ -580,11 +662,11 @@ pub fn dbfs_common_create(
         let dotdot = format!("data{}", 1);
         let dotdot_value = format!("{}:{}", "..", dir);
         new_inode.put(dotdot, dotdot_value).unwrap();
-        new_inode.put("size", 2usize.to_be_bytes()).unwrap();
-    } else {
-        new_inode.put("size", 0usize.to_be_bytes()).unwrap();
-        new_inode.put("hard_links", 1u32.to_be_bytes()).unwrap();
     }
+    new_inode.put("size", file_size.to_be_bytes()).unwrap();
+    new_inode
+        .put("hard_links", hard_link.to_be_bytes())
+        .unwrap();
     new_inode.put("uid", uid.to_be_bytes()).unwrap();
     new_inode.put("gid", gid.to_be_bytes()).unwrap();
     // set time
@@ -596,10 +678,29 @@ pub fn dbfs_common_create(
     if permission.contains(DbfsPermission::S_IFLNK) {
         new_inode.put("data", target_path.unwrap()).unwrap();
     }
+    tx.commit().map_err(|_| ())?;
 
-    tx.commit().unwrap();
+    let dbfs_attr = DbfsAttr {
+        ino: new_number,
+        size: file_size,
+        blocks: 0,
+        atime: DbfsTimeSpec::from(c_time),
+        mtime: DbfsTimeSpec::from(c_time),
+        ctime: DbfsTimeSpec::from(c_time),
+        crtime: DbfsTimeSpec::from(0),
+        kind: DbfsFileType::from(permission),
+        perm: mode.bits(),
+        nlink: hard_link,
+        uid,
+        gid,
+        rdev: 0,
+        blksize: 512,
+        padding: 0,
+        flags: 0,
+    };
+
     ddebug!("dbfs_common_create end");
-    Ok(new_number)
+    Ok(dbfs_attr)
 }
 
 fn inode_ops_from_inode_mode(inode_mode: InodeMode) -> InodeOps {

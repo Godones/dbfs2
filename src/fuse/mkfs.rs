@@ -21,7 +21,7 @@ use rvfs::warn;
 use std::fs::OpenOptions;
 use std::path::Path;
 
-struct MyOpenOptions {
+pub struct MyOpenOptions {
     read: bool,
     write: bool,
     create: bool,
@@ -165,7 +165,7 @@ impl PathLike for FakePath {
     }
 }
 
-struct FakeMMap;
+pub struct FakeMMap;
 
 struct IndexByPageIDImpl {
     map: memmap2::Mmap,
@@ -225,7 +225,7 @@ pub fn init_dbfs_fuse<T: AsRef<Path>>(path: T, size: u64) {
     dbfs_common_root_inode(uid, gid, time.into()).unwrap();
 }
 
-fn init_db(db: &DB, size: u64) {
+pub fn init_db(db: &DB, size: u64) {
     let tx = db.tx(true).unwrap();
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 0usize.to_be_bytes()).unwrap();
@@ -235,7 +235,7 @@ fn init_db(db: &DB, size: u64) {
     tx.commit().unwrap()
 }
 
-fn test_dbfs(db: &DB) {
+pub fn test_dbfs(db: &DB) {
     let tx = db.tx(true).unwrap();
     tx.buckets().for_each(|(name, x)| {
         let key = name.name();

@@ -11,7 +11,6 @@ pub struct DbfsDirEntry {
 }
 
 bitflags! {
-    #[derive(Copy, Clone)]
     pub struct DbfsPermission: u16 {
         const S_IFSOCK = 0o140000;
         const S_IFLNK = 0o120000;
@@ -106,17 +105,18 @@ pub struct DbfsTimeSpec {
 
 impl Into<usize> for DbfsTimeSpec {
     fn into(self) -> usize {
-        self.sec as usize + (self.nsec as usize) / 1000
+        // transform into ms
+        (self.sec * 1000 + (self.nsec / 1000) as u64) as usize
     }
 }
 
 impl From<usize> for DbfsTimeSpec {
     fn from(value: usize) -> Self {
-        let sec = value as u64;
-        let nsec = (value % 1000) as u32;
-        Self{
-            sec,
-            nsec,
+        let sec = value / 1000;
+        let nsec = (value % 1000) * 1000;
+        Self {
+            sec: sec as u64,
+            nsec: nsec as u32,
         }
     }
 }
@@ -145,7 +145,7 @@ pub struct DbfsAttr {
     pub crtime: DbfsTimeSpec,
     /// Kind of file (directory, file, pipe, etc)
     pub kind: DbfsFileType,
-    /// Permissions
+    /// Permissions, it does not include the file type
     pub perm: u16,
     /// Number of hard links
     pub nlink: u32,
@@ -161,6 +161,23 @@ pub struct DbfsAttr {
     pub padding: u32,
     /// Flags (macOS only, see chflags(2))
     pub flags: u32,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct DbfsFsStat {
+    pub f_bsize: u64,
+    pub f_frsize: u64,
+    pub f_blocks: u64,
+    pub f_bfree: u64,
+    pub f_bavail: u64,
+    pub f_files: u64,
+    pub f_ffree: u64,
+    pub f_favail: u64,
+    pub f_fsid: u64,
+    pub f_flag: u64,
+    pub f_namemax: u64,
+    pub name: [u8; 32],
 }
 
 #[cfg(feature = "fuse")]
@@ -209,9 +226,9 @@ mod impl_fuse {
                 atime: SystemTime::from(value.atime),
                 mtime: SystemTime::from(value.mtime),
                 ctime: SystemTime::from(value.ctime),
-                crtime: SystemTime::UNIX_EPOCH,
+                crtime: SystemTime::from(value.crtime),
                 kind: value.kind.into(),
-                perm: value.perm,
+                perm: value.perm & 0o777,
                 nlink: value.nlink,
                 uid: value.uid,
                 gid: value.gid,
@@ -226,8 +243,9 @@ mod impl_fuse {
 
 #[cfg(feature = "rvfs")]
 mod impl_rvfs {
-    use crate::common::DbfsFileType;
+    use crate::common::{DbfsFileType, DbfsFsStat};
     use rvfs::inode::InodeMode;
+    use rvfs::superblock::StatFs;
 
     impl From<DbfsFileType> for InodeMode {
         fn from(value: DbfsFileType) -> Self {
@@ -236,6 +254,19 @@ mod impl_rvfs {
                 DbfsFileType::RegularFile => InodeMode::S_FILE,
                 DbfsFileType::Symlink => InodeMode::S_SYMLINK,
                 _ => panic!("Invalid file type"),
+            }
+        }
+    }
+    impl From<DbfsFsStat> for StatFs {
+        fn from(value: DbfsFsStat) -> Self {
+            StatFs {
+                fs_type: value.f_fsid as u32,
+                block_size: value.f_bsize,
+                total_blocks: value.f_blocks,
+                free_blocks: value.f_bfree,
+                total_inodes: value.f_files,
+                name_len: value.f_namemax as u32,
+                name: value.name,
             }
         }
     }

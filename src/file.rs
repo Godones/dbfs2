@@ -7,12 +7,12 @@ use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::cmp::{max, min};
 use core::ops::Range;
-use jammdb::{Data, ToBytes};
+use jammdb::Data;
 
 use crate::common::{DbfsDirEntry, DbfsFileType, DbfsPermission};
 use rvfs::dentry::DirContext;
 use rvfs::file::{File, FileOps};
-use rvfs::{warn, StrResult};
+use rvfs::StrResult;
 
 pub const DBFS_DIR_FILE_OPS: FileOps = {
     let mut ops = FileOps::empty();
@@ -60,11 +60,11 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> StrResult
     if offset >= size as u64 {
         return Ok(0);
     }
-    let mut num = offset / 512;
+    let num = offset / 512;
     // let mut offset = offset % 512;
     let mut buf_offset = 0;
-    let mut total = 0;
-    let end_num = (offset + buf.len() as u64) / 512 + 1 ;
+    let _total = 0;
+    let end_num = (offset + buf.len() as u64) / 512 + 1;
 
     let start_key = format!("data{:04x}", num as u32);
     let end_key = format!("data{:04x}", end_num as u32);
@@ -73,7 +73,7 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> StrResult
         end: end_key.as_bytes(),
     };
     let iter = bucket.range(range);
-    for data in iter{
+    for data in iter {
         match data {
             Data::Bucket(_) => {
                 panic!("bucket in bucket")
@@ -84,7 +84,7 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> StrResult
                 let key = core::str::from_utf8(key).unwrap();
                 let index = key.splitn(2, "data").nth(1).unwrap();
                 let index = u32::from_str_radix(index, 16).unwrap();
-                let current_size = index as usize * 512;  // offset = 1000 ,current_size >= 512,1024 => offset= 1000 - 512 = 488
+                let current_size = index as usize * 512; // offset = 1000 ,current_size >= 512,1024 => offset= 1000 - 512 = 488
                 let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,512)范围
                 let len = min(buf.len() - buf_offset, 512 - value_offset);
                 buf[buf_offset..buf_offset + len]

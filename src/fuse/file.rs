@@ -2,7 +2,7 @@ use crate::common::DbfsDirEntry;
 use crate::file::{dbfs_common_read, dbfs_common_readdir, dbfs_common_write};
 use alloc::vec;
 use fuser::ReplyDirectory;
-use log::error;
+
 use rvfs::warn;
 
 pub fn dbfs_fuse_read(ino: u64, offset: i64, buf: &mut [u8]) -> Result<usize, ()> {
@@ -25,12 +25,12 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
             repl.error(libc::ENOENT);
             return;
         }
-        let res  = res.unwrap();
+        let res = res.unwrap();
         if res == 0 {
             repl.ok();
             return;
         }
-        for i in 0..res{
+        for i in 0..res {
             let x = &entries[i];
             if repl.add(x.ino, x.offset as i64 + 1, x.kind.into(), x.name.as_str()) {
                 // buf full

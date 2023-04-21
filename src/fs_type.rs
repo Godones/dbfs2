@@ -1,18 +1,19 @@
 use crate::file::DBFS_DIR_FILE_OPS;
 use crate::inode::{permission_from_mode, DBFS_DIR_INODE_OPS, DBFS_INODE_NUMBER};
-use crate::{clone_db, u32, usize};
+use crate::{clone_db, u32, u64, usize};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::sync::{Arc, Weak};
-use alloc::{format, vec};
-use log::warn;
+use alloc::vec;
+
+use crate::common::DbfsFsStat;
 use rvfs::dentry::{DirEntry, DirEntryOps, DirFlags};
 use rvfs::file::FileMode;
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode};
 use rvfs::mount::MountFlags;
 use rvfs::superblock::{
-    find_super_blk, DataOps, FileSystemAttr, FileSystemType, FileSystemTypeInner, SuperBlock,
-    SuperBlockInner, SuperBlockOps,
+    find_super_blk, DataOps, FileSystemAttr, FileSystemType, FileSystemTypeInner, StatFs,
+    SuperBlock, SuperBlockInner, SuperBlockOps,
 };
 use rvfs::{ddebug, StrResult};
 use spin::Mutex;
@@ -29,6 +30,7 @@ pub const DBFS: FileSystemType = FileSystemType {
 const DBFS_SB_BLK_OPS: SuperBlockOps = {
     let mut sb_ops = SuperBlockOps::empty();
     sb_ops.sync_fs = dbfs_sync_fs;
+    sb_ops.stat_fs = dbfs_stat_fs;
     sb_ops
 };
 
@@ -183,4 +185,59 @@ fn dbfs_create_root_dentry(inode: Arc<Inode>) -> StrResult<Arc<DirEntry>> {
     let dentry = Arc::new(dentry);
     dentry.access_inner().parent = Arc::downgrade(&dentry);
     Ok(dentry)
+}
+
+fn dbfs_stat_fs(sb_blk: Arc<SuperBlock>) -> StrResult<StatFs> {
+    let stat = dbfs_common_statfs(
+        Some(sb_blk.block_size as u64),
+        Some(sb_blk.magic),
+        Some(sb_blk.mount_flag.bits() as u64),
+    )
+    .map_err(|_| "statfs error")?;
+
+    Ok(stat.into())
+}
+
+pub fn dbfs_common_statfs(
+    blk_size: Option<u64>,
+    magic: Option<u32>,
+    mount_flags: Option<u64>,
+) -> Result<DbfsFsStat, ()> {
+    let (disk_size, magic) = {
+        let db = clone_db();
+        let tx = db.tx(false).unwrap();
+        let bucket = tx.get_bucket("super_blk").unwrap();
+        let disk_size = bucket.get_kv("disk_size").unwrap();
+        let disk_size = u64!(disk_size.value());
+        let magic = magic.unwrap_or_else(|| {
+            let magic = bucket.get_kv("magic").unwrap();
+            u32!(magic.value())
+        });
+        (disk_size, magic)
+    };
+
+    let blk_size = blk_size.unwrap_or(512);
+
+    // TODO! manage the disk_size
+
+    let total_inodes = DBFS_INODE_NUMBER.load(core::sync::atomic::Ordering::SeqCst) as u64;
+    let mut name = [0u8; 32];
+    name[..4].copy_from_slice(b"dbfs");
+    let mount_flag = mount_flags.unwrap_or(0);
+
+    let stat = DbfsFsStat {
+        f_bsize: blk_size,
+        f_frsize: blk_size,
+        f_blocks: disk_size / blk_size,
+        f_bfree: disk_size / blk_size,
+        f_bavail: disk_size / blk_size,
+        f_files: total_inodes-1,
+        f_ffree: 999,
+        f_favail: 999,
+        f_fsid: magic as u64,
+        f_flag: mount_flag,
+        f_namemax: 255,
+        name,
+    };
+    Ok(stat)
 }

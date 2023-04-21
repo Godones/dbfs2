@@ -1,5 +1,5 @@
 use clap::{crate_version, Arg, Command};
-use dbfs2::fuse::inode::dbfs_fuse_getattr;
+use dbfs2::fuse::attr::dbfs_fuse_getattr;
 use dbfs2::fuse::{init_dbfs_fuse, DbfsFuse};
 use fuser::MountOption;
 
@@ -33,7 +33,7 @@ fn fuse() {
         .get_matches();
 
     env_logger::init();
-    init_dbfs_fuse("./test.dbfs", 64 * 1024 * 1024);
+    // init_dbfs_fuse("./test.dbfs", 64 * 1024 * 1024);
 
     let mountpoint = matches.value_of("MOUNT_POINT").unwrap();
     let mut options = vec![MountOption::FSName("dbfs".to_string())];
