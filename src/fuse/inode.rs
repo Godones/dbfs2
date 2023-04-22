@@ -1,7 +1,7 @@
 use crate::common::{DbfsPermission, DbfsTimeSpec};
 use downcast::_std::time::SystemTime;
 use fuser::{FileAttr, Request};
-use log::error;
+
 use rvfs::warn;
 
 use crate::inode::{dbfs_common_create, dbfs_common_lookup};
@@ -54,7 +54,7 @@ pub fn dbfs_fuse_mkdir(
     name: &str,
     mode: u32,
 ) -> Result<FileAttr, ()> {
-    error!(
+    warn!(
         "dbfs_fuse_mkdir(parent:{},name:{},mode:{})",
         parent, name, mode
     );

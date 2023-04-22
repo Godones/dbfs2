@@ -1,6 +1,9 @@
 use alloc::string::String;
-
 use bitflags::bitflags;
+use onlyerror::Error;
+
+pub const FMODE_EXEC: i32 = 0x20;
+pub const MAX_PATH_LEN: usize = 255;
 
 #[derive(Debug, Default, Clone)]
 pub struct DbfsDirEntry {
@@ -8,6 +11,39 @@ pub struct DbfsDirEntry {
     pub offset: u64,
     pub kind: DbfsFileType,
     pub name: String,
+}
+
+#[derive(Error, Debug)]
+pub enum DbfsError {
+    #[error("DbfsError::NotFound")]
+    NotFound = 2,
+    #[error("DbfsError::PermissionDenied")]
+    PermissionDenied = 13,
+    #[error("DbfsError::FileExists")]
+    FileExists = 17,
+    #[error("DbfsError::InvalidArgument")]
+    InvalidArgument = 22,
+    #[error("DbfsError::Io")]
+    Io = 5,
+    #[error("DbfsError::Other")]
+    Other = 999,
+}
+
+pub type DbfsResult<T> = Result<T, DbfsError>;
+
+impl From<jammdb::Error> for DbfsError {
+    fn from(value: jammdb::Error) -> Self {
+        match value {
+            jammdb::Error::BucketExists => DbfsError::FileExists,
+            jammdb::Error::BucketMissing => DbfsError::NotFound,
+            jammdb::Error::KeyValueMissing => DbfsError::NotFound,
+            jammdb::Error::IncompatibleValue => DbfsError::InvalidArgument,
+            jammdb::Error::ReadOnlyTx => DbfsError::PermissionDenied,
+            jammdb::Error::Io(_) => DbfsError::Io,
+            jammdb::Error::Sync(_) => DbfsError::Io,
+            jammdb::Error::InvalidDB(_) => DbfsError::Other,
+        }
+    }
 }
 
 bitflags! {

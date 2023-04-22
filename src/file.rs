@@ -9,7 +9,8 @@ use core::cmp::{max, min};
 use core::ops::Range;
 use jammdb::Data;
 
-use crate::common::{DbfsDirEntry, DbfsFileType, DbfsPermission};
+use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission};
+use crate::inode::{checkout_access, dbfs_common_attr};
 use rvfs::dentry::DirContext;
 use rvfs::file::{File, FileOps};
 use rvfs::StrResult;
@@ -222,4 +223,14 @@ pub fn dbfs_common_readdir(
         x.kind = DbfsFileType::from(perm);
     }
     Ok(count)
+}
+
+pub fn dbfs_common_open(ino: usize, uid: u32, gid: u32, access_mask: u16) -> Result<(), DbfsError> {
+    let attr = dbfs_common_attr(ino as usize).map_err(|_| DbfsError::NotFound)?;
+    let bool = checkout_access(attr.uid, attr.gid, attr.perm, uid, gid, access_mask);
+    if bool {
+        Ok(())
+    } else {
+        Err(DbfsError::PermissionDenied)
+    }
 }

@@ -30,6 +30,24 @@ fn fuse() {
                 .long("allow-root")
                 .help("Allow root user to access filesystem"),
         )
+        .arg(
+            Arg::new("default_permissions")
+                .long("default_permissions")
+                .short('d')
+                .default_value("default_permissions")
+                .help("Enable permission checking by kernel"),
+        )
+        .arg(
+            Arg::new("direct-io")
+                .long("direct-io")
+                .requires("MOUNT_POINT")
+                .help("Mount FUSE with direct IO"),
+        )
+        .arg(
+            Arg::new("suid")
+                .long("suid")
+                .help("Enable setuid support when run as root"),
+        )
         .get_matches();
 
     env_logger::init();
@@ -37,7 +55,7 @@ fn fuse() {
 
     let mountpoint = matches.value_of("MOUNT_POINT").unwrap();
     let mut options = vec![MountOption::FSName("dbfs".to_string())];
-    if matches.is_present("auto_unmount") {
+    if matches.contains_id("auto_unmount") {
         options.push(MountOption::AutoUnmount);
     }
     // if matches.is_present("allow-root") {
@@ -45,7 +63,14 @@ fn fuse() {
     // }
     // options.push(MountOption::AllowRoot);
 
-    let fs = DbfsFuse;
+    if matches.contains_id("default_permissions") {
+        options.push(MountOption::DefaultPermissions);
+    }
+
+    let fs = DbfsFuse::new(
+        matches.contains_id("direct-io"),
+        matches.contains_id("suid"),
+    );
 
     options.push(MountOption::AllowOther);
     options.push(MountOption::RW);

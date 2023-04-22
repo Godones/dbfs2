@@ -231,7 +231,7 @@ pub fn dbfs_common_statfs(
         f_blocks: disk_size / blk_size,
         f_bfree: disk_size / blk_size,
         f_bavail: disk_size / blk_size,
-        f_files: total_inodes-1,
+        f_files: total_inodes - 1,
         f_ffree: 999,
         f_favail: 999,
         f_fsid: magic as u64,

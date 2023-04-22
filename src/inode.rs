@@ -12,7 +12,8 @@ use rvfs::file::{FileMode, FileOps};
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode, InodeOps};
 use rvfs::{ddebug, warn, StrResult};
 
-use crate::common::{DbfsAttr, DbfsFileType, DbfsPermission, DbfsTimeSpec};
+use crate::common::{DbfsAttr, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec};
+use crate::link::{dbfs_common_readlink, dbfs_common_unlink};
 
 pub static DBFS_INODE_NUMBER: AtomicUsize = AtomicUsize::new(1);
 
@@ -63,37 +64,12 @@ fn dbfs_link(
     dir: Arc<Inode>,
     new_dentry: Arc<DirEntry>,
 ) -> StrResult<()> {
-    let db = clone_db();
-    // update new inode data in db
-    let tx = db.tx(true).unwrap();
     let old_inode = old_dentry.access_inner().d_inode.clone();
-    let number = dir.number;
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let ino = old_inode.number;
+    let name = new_dentry.access_inner().d_name.clone();
+    let new_ino = dir.number;
 
-    let next_number = bucket.get_kv("size".to_string()).unwrap();
-    let next_number = usize!(next_number.value());
-
-    // we use data0, data1, data2, ... to store data
-    // but the number of data is not continuous,
-    // we only neet make sure that the number is unique
-    let key = format!("data{}", next_number);
-    let value = format!(
-        "{}:{}",
-        new_dentry.access_inner().d_name.clone(),
-        old_inode.number
-    );
-    bucket.put(key, value).unwrap();
-    bucket.put("size", (next_number + 1).to_be_bytes()).unwrap();
-
-    tx.commit().unwrap();
-    // update old inode data in db
-    let tx = db.tx(true).unwrap();
-    let old_bucket = tx.get_bucket(old_inode.number.to_be_bytes()).unwrap();
-    let hard_links = old_bucket.get_kv("hard_links".to_string()).unwrap();
-    let mut value = u32!(hard_links.value());
-    value += 1;
-    old_bucket.put("hard_links", value.to_be_bytes()).unwrap();
-    tx.commit().unwrap();
+    let _ = dbfs_common_link(0, 0, ino, new_ino, &name, 0).map_err(|_| "DbfsError::NotFound")?;
 
     // update old inode data in memory
     // update hard_links
@@ -103,40 +79,71 @@ fn dbfs_link(
     new_dentry.access_inner().d_inode = old_inode;
     Ok(())
 }
+
+pub fn dbfs_common_link(
+    uid: u32,
+    gid: u32,
+    ino: usize,
+    new_ino: usize,
+    name: &str,
+    ctime: usize,
+) -> DbfsResult<DbfsAttr> {
+    // checkout permission
+    let attr = dbfs_common_attr(new_ino).map_err(|_| DbfsError::NotFound)?;
+    if !checkout_access(
+        attr.uid,
+        attr.gid,
+        attr.perm & 0o777,
+        uid,
+        gid,
+        2, //libc::W_OK,
+    ) {
+        return Err(DbfsError::PermissionDenied);
+    }
+
+    let db = clone_db();
+    // update new inode data in db
+    let tx = db.tx(true).unwrap();
+    let bucket = tx.get_bucket(new_ino.to_be_bytes()).unwrap();
+    let next_number = bucket.get_kv("size".to_string()).unwrap();
+    let next_number = usize!(next_number.value());
+
+    let key = format!("data{}", next_number);
+    let value = format!("{}:{}", name, ino);
+    bucket.put(key, value).unwrap();
+    bucket.put("size", (next_number + 1).to_be_bytes()).unwrap();
+
+    // update ctime/mtime
+    bucket.put("ctime", ctime.to_be_bytes()).unwrap();
+    bucket.put("mtime", ctime.to_be_bytes()).unwrap();
+
+    // update old inode data in memory
+    // update hard_links
+    // set the new dentry's inode to old inode
+
+    let old_bucket = tx.get_bucket(ino.to_be_bytes()).unwrap();
+    let hard_links = old_bucket.get_kv("hard_links".to_string()).unwrap();
+    let mut value = u32!(hard_links.value());
+    value += 1;
+    old_bucket.put("hard_links", value.to_be_bytes()).unwrap();
+    // update ctime: last change time
+    old_bucket.put("ctime", ctime.to_be_bytes()).unwrap();
+
+    tx.commit().unwrap();
+    let dbfs_attr = dbfs_common_attr(ino).map_err(|_| DbfsError::NotFound)?;
+    Ok(dbfs_attr)
+}
+
 fn dbfs_unlink(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
     let inode = dentry.access_inner().d_inode.clone();
     let number = dir.number;
-    let db = clone_db();
+    let name = &dentry.access_inner().d_name;
 
-    // delete dentry in db
-    let tx = db.tx(true).unwrap();
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
-    // find the dentry in db
-    let value = bucket.kv_pairs().find(|kv| {
-        kv.value()
-            .starts_with(dentry.access_inner().d_name.as_bytes())
-    });
-    bucket.delete(value.unwrap().key()).unwrap();
-    tx.commit().unwrap();
-
-    // update inode data in db
-    let tx = db.tx(true).unwrap();
-    let bucket = tx.get_bucket(inode.number.to_be_bytes()).unwrap();
-    let hard_links = bucket.get_kv("hard_links".to_string()).unwrap();
-    let mut value = u32!(hard_links.value());
-    value -= 1;
-    bucket.put("hard_links", value.to_be_bytes()).unwrap();
-    tx.commit().unwrap();
-
+    warn!("dbfs_unlink: dir.number={}, name={}", number, name);
+    dbfs_common_unlink(0, 0, number, name, Some(inode.number), 0)
+        .map_err(|_| "dbfs_common_unlink failed")?;
     let mut inner = inode.access_inner();
     inner.hard_links -= 1;
-
-    if inner.hard_links == 0 {
-        // delete inode in db
-        let tx = db.tx(true).unwrap();
-        tx.delete_bucket(inode.number.to_be_bytes()).unwrap();
-        tx.commit().unwrap();
-    }
     Ok(())
 }
 
@@ -345,17 +352,12 @@ fn dbfs_listattr(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize> {
     }
     Ok(total_attr_buf)
 }
+
 fn dbfs_readlink(dentry: Arc<DirEntry>, buf: &mut [u8]) -> StrResult<usize> {
-    let db = clone_db();
-    let tx = db.tx(false).unwrap();
     let number = dentry.access_inner().d_inode.number;
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
-    let value = bucket.get_kv("data").unwrap();
-    let value = value.value();
-    let len = min(value.len(), buf.len());
-    buf[..len].copy_from_slice(value);
-    Ok(len)
+    dbfs_common_readlink(number, buf).map_err(|_| "not a symlink")
 }
+
 fn dbfs_followlink(dentry: Arc<DirEntry>, lookup_data: &mut LookUpData) -> StrResult<()> {
     let db = clone_db();
     let tx = db.tx(false).unwrap();
@@ -535,7 +537,7 @@ fn dbfs_rvfs_create(
 }
 
 /// checkout the permission
-fn checkout_access(
+pub fn checkout_access(
     p_uid: u32,
     p_gid: u32,
     mode: u16,
@@ -650,6 +652,9 @@ pub fn dbfs_common_create(
 
     let (hard_link, file_size) = if permission.contains(DbfsPermission::S_IFDIR) {
         (2u32, 2usize)
+    } else if permission.contains(DbfsPermission::S_IFLNK) {
+        assert!(target_path.is_some());
+        (1u32, target_path.as_ref().unwrap().len())
     } else {
         (1u32, 0usize)
     };

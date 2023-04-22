@@ -1,3 +1,4 @@
+#![feature(error_in_core)]
 #![cfg_attr(not(test), no_std)]
 extern crate alloc;
 
@@ -19,6 +20,7 @@ pub mod extend;
 pub mod fuse;
 
 mod common;
+mod link;
 
 struct SafeDb(DB);
 
