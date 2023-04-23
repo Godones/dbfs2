@@ -63,9 +63,11 @@ fn fuse() {
     // }
     // options.push(MountOption::AllowRoot);
 
-    if matches.contains_id("default_permissions") {
-        options.push(MountOption::DefaultPermissions);
-    }
+    // if matches.contains_id("default_permissions") {
+    //     options.push(MountOption::DefaultPermissions);
+    // }
+
+    options.push(MountOption::DefaultPermissions);
 
     let fs = DbfsFuse::new(
         matches.contains_id("direct-io"),

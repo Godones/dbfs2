@@ -1,8 +1,8 @@
-use crate::common::DbfsFsStat;
+use crate::common::{DbfsFsStat, DbfsResult};
 use crate::fs_type::dbfs_common_statfs;
-use crate::inode::dbfs_common_attr;
+use crate::inode::{dbfs_common_access, dbfs_common_attr};
 use downcast::_std::time::SystemTime;
-use fuser::{FileAttr, TimeOrNow};
+use fuser::{FileAttr, Request, TimeOrNow};
 use log::warn;
 
 pub fn dbfs_fuse_getattr(ino: u64) -> Result<FileAttr, ()> {
@@ -27,4 +27,10 @@ pub fn dbfs_fuse_setattr(
 pub fn dbfs_fuse_statfs() -> Result<DbfsFsStat, ()> {
     warn!("dbfs_fuse_statfs)");
     dbfs_common_statfs(None, None, None)
+}
+
+
+pub fn dbfs_fuse_access(req:&Request<'_>,ino: u64, mask: i32) -> DbfsResult<bool> {
+    warn!("dbfs_fuse_access(ino:{})", ino);
+    dbfs_common_access(req.uid(),req.gid(),ino as usize, mask)
 }

@@ -8,6 +8,7 @@ use alloc::{format, vec};
 use core::cmp::{max, min};
 use core::ops::Range;
 use jammdb::Data;
+use log::error;
 
 use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission};
 use crate::inode::{checkout_access, dbfs_common_attr};
@@ -222,6 +223,7 @@ pub fn dbfs_common_readdir(
         let perm = DbfsPermission::from_bits_truncate(mode);
         x.kind = DbfsFileType::from(perm);
     }
+    error!("dbfs_common_readdir: count: {},buf:{:?}", count,&buf[0..count]);
     Ok(count)
 }
 

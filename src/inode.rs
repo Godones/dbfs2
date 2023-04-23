@@ -708,6 +708,28 @@ pub fn dbfs_common_create(
     Ok(dbfs_attr)
 }
 
+pub fn dbfs_common_access(p_uid:u32,p_gid:u32,ino:usize,mask:i32)->DbfsResult<bool>{
+    let db = clone_db();
+    let tx = db.tx(false)?;
+    let inode = tx.get_bucket(ino.to_be_bytes())?;
+
+    let mode = inode.get_kv("mode").unwrap();
+    let mode = u16!(mode.value());
+    let uid = inode.get_kv("uid").unwrap();
+    let uid = u32!(uid.value());
+    let gid = inode.get_kv("gid").unwrap();
+    let gid = u32!(gid.value());
+    let res = checkout_access(
+        p_uid,
+        p_gid,
+        mode,
+        uid,
+        gid,
+        mask as u16,
+    );
+    Ok(res)
+}
+
 fn inode_ops_from_inode_mode(inode_mode: InodeMode) -> InodeOps {
     match inode_mode {
         InodeMode::S_FILE => DBFS_FILE_INODE_OPS,

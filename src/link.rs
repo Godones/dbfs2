@@ -2,7 +2,7 @@ use crate::common::{DbfsError, DbfsPermission, DbfsResult};
 use crate::inode::checkout_access;
 use crate::{clone_db, u16, u32};
 use core::cmp::min;
-use log::warn;
+use log::{error, warn};
 
 pub fn dbfs_common_readlink(ino: usize, buf: &mut [u8]) -> DbfsResult<usize> {
     let db = clone_db();
@@ -91,11 +91,12 @@ pub fn dbfs_common_unlink(
     // update the link count
     let h_link = bucket.get_kv("hard_links").unwrap();
     let h_link = u32!(h_link.value());
+    error!("---------- h_link: {}",h_link);
     if h_link == 1 {
         // delete the bucket
         tx.delete_bucket(ino.to_be_bytes())?;
     } else {
-        bucket.put("hard_link", (h_link - 1).to_be_bytes())?;
+        bucket.put("hard_links", (h_link - 1).to_be_bytes())?;
         // update ctime
         bucket.put("ctime", c_time.to_be_bytes())?;
     }

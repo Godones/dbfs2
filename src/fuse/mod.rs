@@ -28,7 +28,7 @@ use crate::fuse::inode::{dbfs_fuse_create, dbfs_fuse_lookup, dbfs_fuse_mkdir};
 
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
-use crate::fuse::attr::{dbfs_fuse_getattr, dbfs_fuse_setattr, dbfs_fuse_statfs};
+use crate::fuse::attr::{dbfs_fuse_access, dbfs_fuse_getattr, dbfs_fuse_setattr, dbfs_fuse_statfs};
 use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, dbfs_fuse_unlink};
 use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions};
 use crate::init_dbfs;
@@ -84,7 +84,7 @@ impl Filesystem for DbfsFuse {
         // we need write back the metadata
         // 1. continue_number to super_block
         // 2. disk_size to super_blk
-        warn!("filesystem exit");
+        error!("filesystem exit");
     }
     /// The lookup() method is called when the kernel wants to know about a file.
     ///
@@ -97,7 +97,12 @@ impl Filesystem for DbfsFuse {
         let res = dbfs_fuse_lookup(parent, name.to_str().unwrap());
         match res {
             Ok(attr) => reply.entry(&TTL, &attr, 0),
-            Err(_) => reply.error(ENOENT),
+            Err(_) => {
+                if name == "." || name == ".."{
+                    panic!("lookup panic");
+                }
+                reply.error(ENOENT)
+            }
         }
     }
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
@@ -105,7 +110,7 @@ impl Filesystem for DbfsFuse {
         match res {
             Ok(attr) => reply.attr(&TTL, &attr),
             Err(_) => {
-                error!("getattr error");
+                panic!("getattr error");
                 reply.error(ENOENT)
             }
         }
@@ -167,7 +172,10 @@ impl Filesystem for DbfsFuse {
         let res = dbfs_fuse_unlink(req, parent, name.to_str().unwrap());
         match res {
             Ok(_) => reply.ok(),
-            Err(_) => reply.error(ENOENT),
+            Err(_) => {
+                panic!("unlink panic");
+                reply.error(ENOENT)
+            }
         }
     }
 
@@ -186,6 +194,8 @@ impl Filesystem for DbfsFuse {
             Err(_) => reply.error(ENOENT),
         }
     }
+
+    /// Create a hard link to a file
     fn link(
         &mut self,
         req: &Request<'_>,
@@ -269,6 +279,20 @@ impl Filesystem for DbfsFuse {
     ) {
         reply.ok();
     }
+    fn release(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        _fh: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
+        error!("release not implemented");
+        reply.ok();
+    }
+
     ///Synchronize file contents
     ///
     /// If the datasync parameter is non-zero, then only the user data should be flushed, not the meta data.
@@ -283,6 +307,25 @@ impl Filesystem for DbfsFuse {
         error!("fsync not implemented");
     }
 
+    /// Open directory
+    ///
+    /// Unless the 'default_permissions' mount option is given, this method should check if opendir is permitted for this directory.
+    /// Optionally opendir may also return an arbitrary filehandle in the fuse_file_info structure, which will be passed to readdir,
+    /// releasedir and fsyncdir.
+    fn opendir(&mut self, req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+        let res = dbfs_fuse_opendir(req, ino, flags);
+        match res {
+            Ok(_) => {
+                let open_flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
+                reply.opened(0, open_flags);
+            }
+            Err(_) => {
+                panic!("opendir error");
+                reply.error(res.err().unwrap() as i32)
+            }
+        }
+    }
+
     fn readdir(
         &mut self,
         _req: &Request<'_>,
@@ -293,6 +336,15 @@ impl Filesystem for DbfsFuse {
     ) {
         dbfs_fuse_readdir(ino, offset, reply)
     }
+
+    /// Release directory
+    ///
+    /// If the directory has been removed after the call to opendir, the path parameter will be NULL.
+    fn releasedir(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
+        warn!("releasedir always ok");
+        reply.ok()
+    }
+
 
     /// Get file system statistics
     //
@@ -315,6 +367,19 @@ impl Filesystem for DbfsFuse {
             Err(_) => reply.error(ENOENT),
         }
     }
+    fn access(&mut self, req: &Request<'_>, ino: u64, mask: i32, reply: ReplyEmpty) {
+        let res = dbfs_fuse_access(req,ino,mask);
+        match res {
+            Ok(bool) => {
+                if bool {
+                    reply.ok();
+                } else {
+                    reply.error(ENOENT);
+                }
+            }
+            Err(x) => reply.error(x as i32),
+        }
+    }
 
     /// Create and open a file
     ///
@@ -335,38 +400,6 @@ impl Filesystem for DbfsFuse {
         match res {
             Ok(attr) => reply.created(&TTL, &attr, 0, 0, 0),
             Err(_) => reply.error(ENOENT),
-        }
-    }
-
-    fn release(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _flags: i32,
-        _lock_owner: Option<u64>,
-        _flush: bool,
-        reply: ReplyEmpty,
-    ) {
-        reply.ok();
-    }
-
-    /// Open directory
-    ///
-    /// Unless the 'default_permissions' mount option is given, this method should check if opendir is permitted for this directory.
-    /// Optionally opendir may also return an arbitrary filehandle in the fuse_file_info structure, which will be passed to readdir,
-    /// releasedir and fsyncdir.
-    fn opendir(&mut self, req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-        let res = dbfs_fuse_opendir(req, ino, flags);
-        match res {
-            Ok(_) => {
-                let open_flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
-                reply.opened(0, open_flags);
-            }
-            Err(_) => {
-                error!("opendir error");
-                reply.error(res.err().unwrap() as i32)
-            }
         }
     }
 }

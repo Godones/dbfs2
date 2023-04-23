@@ -4,7 +4,7 @@ use crate::{clone_db, u32, u64, usize};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::sync::{Arc, Weak};
-use alloc::vec;
+use alloc::{format, vec};
 
 use crate::common::DbfsFsStat;
 use rvfs::dentry::{DirEntry, DirEntryOps, DirFlags};
@@ -156,7 +156,7 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: usize) -> Result<usize,
             .unwrap();
         // set the size of inode to 0
         // new_inode.put("size", 0usize.to_be_bytes()).unwrap();
-        new_inode.put("hard_links", 0u32.to_be_bytes()).unwrap();
+        new_inode.put("hard_links", 2u32.to_be_bytes()).unwrap();
         new_inode.put("uid", uid.to_be_bytes()).unwrap();
         new_inode.put("gid", gid.to_be_bytes()).unwrap();
         // set time
@@ -165,7 +165,12 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: usize) -> Result<usize,
         new_inode.put("ctime", ctime.to_be_bytes()).unwrap();
         new_inode.put("block_size", 512u32.to_be_bytes()).unwrap();
         new_inode.put("next_number", 0usize.to_be_bytes()).unwrap();
-        new_inode.put("size", 0usize.to_be_bytes()).unwrap();
+        new_inode.put("size", 1usize.to_be_bytes()).unwrap();
+
+        // insert dot  file
+        let dot = format!("data{}", 0);
+        let dot_value = format!("{}:{}", ".", 1usize);
+        new_inode.put(dot, dot_value).unwrap();
     }
     let bucket = tx.get_bucket(1usize.to_be_bytes()).unwrap();
     let count = bucket.get_kv("size").unwrap();
