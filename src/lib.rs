@@ -21,6 +21,7 @@ pub mod fuse;
 
 mod common;
 mod link;
+mod attr;
 
 struct SafeDb(DB);
 

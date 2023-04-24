@@ -75,11 +75,11 @@ pub fn dbfs_fuse_open(req: &Request<'_>, ino: u64, flags: i32) -> Result<(), i32
 
 pub fn dbfs_fuse_opendir(req: &Request<'_>, ino: u64, flags: i32) -> DbfsResult<()> {
     error!("dbfs_fuse_opendir(ino:{},flag:{})", ino, flags);
-    let (access_mask, read, write) = match flags & libc::O_ACCMODE {
+    let (access_mask, _read, _write) = match flags & libc::O_ACCMODE {
         libc::O_RDONLY => {
             // Behavior is undefined, but most filesystems return EACCES
             if flags & libc::O_TRUNC != 0 {
-                return Err(DbfsError::PermissionDenied);
+                return Err(DbfsError::AccessError);
             }
             (libc::R_OK, true, false)
         }

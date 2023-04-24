@@ -11,8 +11,9 @@ use rvfs::dentry::{DirEntry, LookUpData};
 use rvfs::file::{FileMode, FileOps};
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode, InodeOps};
 use rvfs::{ddebug, warn, StrResult};
+use crate::attr::clear_suid_sgid;
 
-use crate::common::{DbfsAttr, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec};
+use crate::common::{ACCESS_W_OK, DbfsAttr, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec};
 use crate::link::{dbfs_common_readlink, dbfs_common_unlink};
 
 pub static DBFS_INODE_NUMBER: AtomicUsize = AtomicUsize::new(1);
@@ -98,7 +99,7 @@ pub fn dbfs_common_link(
         gid,
         2, //libc::W_OK,
     ) {
-        return Err(DbfsError::PermissionDenied);
+        return Err(DbfsError::AccessError);
     }
 
     let db = clone_db();
@@ -427,68 +428,11 @@ fn dbfs_rename(
 }
 
 fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()> {
-    let db = clone_db();
-    let tx = db.tx(true).unwrap();
     let number = inode.number;
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let inode_inner = inode.access_inner();
     let f_size = inode_inner.file_size;
-    let start = f_size / 512;
-    let offset = f_size % 512;
-
-    let current_size = bucket.get_kv("size").unwrap();
-    let current_size = usize!(current_size.value());
-    // if current file size < f_size, allocate new blocks
-    // if current file size > f_size, free blocks
-
-    let current_block = current_size / 512;
-    if current_block < start {
-        // We don't need to allocate new blocks
-        // When write or read occurs, it will allocate new blocks or ignore
-        // We need set the size of the file
-        let sb_blk = tx.get_bucket("super_blk".as_bytes()).unwrap();
-        let disk_size = sb_blk.get_kv("disk_size").unwrap();
-        let disk_size = u64!(disk_size.value());
-        let gap = f_size - current_size; // newsize - oldsize
-        if disk_size < gap as u64 {
-            return Err("dbfs_truncate: disk size is not enough");
-        }
-        let new_disk_size = disk_size - gap as u64;
-        sb_blk
-            .put("disk_size", new_disk_size.to_be_bytes())
-            .unwrap();
-    } else if current_block >= start {
-        // we need to free blocks
-        for i in start + 1..=current_block {
-            let key = format!("data{:04x}", i);
-            if bucket.get_kv(&key).is_some() {
-                bucket.delete(&key).unwrap();
-            }
-        }
-        //
-        let start_key = format!("data{:04x}", start);
-        let value = bucket.get_kv(&start_key);
-        if value.is_some() {
-            let value = value.unwrap();
-            let mut value = value.value().to_vec();
-            // set the data in offset to 0
-            for i in offset..512 {
-                value[i] = 0;
-            }
-            bucket.put(start_key, value).unwrap();
-        }
-        let sb_blk = tx.get_bucket("super_blk".as_bytes()).unwrap();
-        let disk_size = sb_blk.get_kv("disk_size").unwrap();
-        let disk_size = u64!(disk_size.value());
-        let additional_size = (current_block - start) * 512; // 1 - 0
-        let new_disk_size = disk_size + additional_size as u64;
-        sb_blk
-            .put("disk_size", new_disk_size.to_be_bytes())
-            .unwrap();
-    }
-    bucket.put("size", f_size.to_be_bytes()).unwrap();
-    warn!("dbfs_truncate: set size to {}", f_size);
-    tx.commit().unwrap();
+    let _res = dbfs_common_truncate(0,0,number,0,f_size)
+        .map_err(|_| "dbfs_truncate: truncate failed")?;
     Ok(())
 }
 
@@ -728,6 +672,88 @@ pub fn dbfs_common_access(p_uid:u32,p_gid:u32,ino:usize,mask:i32)->DbfsResult<bo
         mask as u16,
     );
     Ok(res)
+}
+
+
+
+pub fn dbfs_common_truncate(r_uid:u32,r_gid:u32,ino:usize,ctime:usize,f_size:usize)->DbfsResult<DbfsAttr>{
+    warn!("dbfs_truncate: set size to {}", f_size);
+    let mut attr = dbfs_common_attr(ino).map_err(|_| DbfsError::NotFound)?;
+    // checkout permission
+    if !checkout_access(attr.uid,attr.gid,attr.perm,r_uid,r_gid,ACCESS_W_OK){
+        return Err(DbfsError::AccessError);
+    }
+
+    let db = clone_db();
+    let tx = db.tx(true)?;
+    let bucket = tx.get_bucket(ino.to_be_bytes()).unwrap();
+    let start = f_size / 512;
+    let offset = f_size % 512;
+
+    let current_size = attr.size;
+    // if current file size < f_size, allocate new blocks
+    // if current file size > f_size, free blocks
+
+    let current_block = current_size / 512;
+    if current_block < start {
+        // We don't need to allocate new blocks
+        // When write or read occurs, it will allocate new blocks or ignore
+        // We need set the size of the file
+        let sb_blk = tx.get_bucket("super_blk".as_bytes()).unwrap();
+        let disk_size = sb_blk.get_kv("disk_size").unwrap();
+        let disk_size = u64!(disk_size.value());
+        let gap = f_size.saturating_sub(current_size); // newsize - oldsize
+        if disk_size < gap as u64 {
+            return Err(DbfsError::NoSpace);
+        }
+        let new_disk_size = disk_size - gap as u64;
+        sb_blk
+            .put("disk_size", new_disk_size.to_be_bytes())?;
+    } else if current_block >= start {
+        // we need to free blocks
+        for i in start + 1..=current_block {
+            let key = format!("data{:04x}", i);
+            if bucket.get_kv(&key).is_some() {
+                bucket.delete(&key)?;
+            }
+        }
+        // fill the first data to zero
+        let start_key = format!("data{:04x}", start);
+        let value = bucket.get_kv(&start_key);
+        if value.is_some() {
+            let value = value.unwrap();
+            let mut value = value.value().to_vec();
+            // set the data in offset to 0
+            for i in offset..512 {
+                value[i] = 0;
+            }
+            bucket.put(start_key, value).unwrap();
+        }
+        let sb_blk = tx.get_bucket("super_blk".as_bytes()).unwrap();
+        let disk_size = sb_blk.get_kv("disk_size").unwrap();
+        let disk_size = u64!(disk_size.value());
+        let additional_size = (current_block - start) * 512; // 1 - 0
+        let new_disk_size = disk_size + additional_size as u64;
+        sb_blk
+            .put("disk_size", new_disk_size.to_be_bytes())?;
+    }
+    // update inode size
+    bucket.put("size", f_size.to_be_bytes())?;
+    // update ctime/mtime
+    bucket.put("ctime", ctime.to_be_bytes())?;
+    bucket.put("mtime", ctime.to_be_bytes())?;
+    //Clear SETUID & SETGID on truncate
+    let perm = attr.perm;
+    let new_perm = clear_suid_sgid(DbfsPermission::from_bits_truncate(perm));
+    bucket.put("mode", new_perm.bits().to_be_bytes())?;
+
+    attr.size = f_size;
+    attr.ctime = ctime.into();
+    attr.mtime = ctime.into();
+    attr.perm = new_perm.bits();
+
+    tx.commit()?;
+    Ok(attr)
 }
 
 fn inode_ops_from_inode_mode(inode_mode: InodeMode) -> InodeOps {

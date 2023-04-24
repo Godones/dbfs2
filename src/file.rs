@@ -8,9 +8,9 @@ use alloc::{format, vec};
 use core::cmp::{max, min};
 use core::ops::Range;
 use jammdb::Data;
-use log::error;
+use log::{debug, error};
 
-use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission};
+use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult};
 use crate::inode::{checkout_access, dbfs_common_attr};
 use rvfs::dentry::DirContext;
 use rvfs::file::{File, FileOps};
@@ -39,13 +39,13 @@ fn dbfs_file_write(file: Arc<File>, buf: &[u8], offset: u64) -> StrResult<usize>
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
-    dbfs_common_write(numer, buf, offset)
+    dbfs_common_write(numer, buf, offset).map_err(|_|"dbfs_common_write error")
 }
 fn dbfs_file_read(file: Arc<File>, buf: &mut [u8], offset: u64) -> StrResult<usize> {
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
-    dbfs_common_read(numer, buf, offset)
+    dbfs_common_read(numer, buf, offset).map_err(|_|"dbfs_common_read error")
 }
 
 /// the file data in dbfs is stored as a set of key-value pairs
@@ -53,10 +53,11 @@ fn dbfs_file_read(file: Arc<File>, buf: &mut [u8], offset: u64) -> StrResult<usi
 /// * data2: \[u8;512]
 /// * ....
 /// * datai: \[u8;512]
-pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> StrResult<usize> {
+pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResult<usize> {
+    debug!("dbfs_common_read ino: {}, offset: {}, buf.len: {}", number, offset, buf.len());
     let db = clone_db();
-    let tx = db.tx(false).unwrap();
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let tx = db.tx(false)?;
+    let bucket = tx.get_bucket(number.to_be_bytes())?;
     let size = bucket.get_kv("size").unwrap();
     let size = usize!(size.value());
     if offset >= size as u64 {
@@ -88,7 +89,8 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> StrResult
                 let index = u32::from_str_radix(index, 16).unwrap();
                 let current_size = index as usize * 512; // offset = 1000 ,current_size >= 512,1024 => offset= 1000 - 512 = 488
                 let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,512)范围
-                let len = min(buf.len() - buf_offset, 512 - value_offset);
+                let real_size = min(size - current_size, 512);
+                let len = min(buf.len() - buf_offset, real_size - value_offset);
                 buf[buf_offset..buf_offset + len]
                     .copy_from_slice(&value[value_offset..value_offset + len]);
 
@@ -99,29 +101,6 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> StrResult
             break;
         }
     }
-
-    // loop {
-    //     let key = format!("data{:04x}", num as u32);
-    //     let kv = bucket.get_kv(key.as_bytes());
-    //     if kv.is_none() {
-    //         continue;
-    //     }
-    //     let kv = kv.unwrap();
-    //     let value = kv.value();
-    //     let real_size = min(size - total, 512);
-    //     let len = min(buf.len() - buf_offset, real_size - offset as usize);
-    //     buf[buf_offset..buf_offset + len]
-    //         .copy_from_slice(&value[offset as usize..offset as usize + len]);
-    //     buf_offset += len;
-    //     offset = (offset + len as u64) % 512;
-    //     num += 1;
-    //     total += len;
-    //
-    //     if buf_offset == buf.len() || total == size {
-    //         break;
-    //     }
-    // }
-
     Ok(buf_offset)
 }
 
@@ -132,10 +111,10 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> StrResult
 /// * datai: \[u8;512]
 /// the i should be u32, because we can store 2^32 * 512 bytes in dbfs, == 2048 GB
 /// u32 == 4 bytes, 0x00000000 - 0xffffffff
-pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> StrResult<usize> {
+pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<usize> {
     let db = clone_db();
-    let tx = db.tx(true).unwrap();
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let tx = db.tx(true)?;
+    let bucket = tx.get_bucket(number.to_be_bytes())?;
     let size = bucket.get_kv("size").unwrap();
     let size = usize!(size.value());
     let o_offset = offset;
@@ -158,7 +137,7 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> StrResult<us
         let len = min(buf.len() - count, 512 - offset as usize);
         data[offset as usize..offset as usize + len].copy_from_slice(&buf[count..count + len]);
         count += len;
-        offset = 0;
+        offset  = (offset + len as u64) % 512;
         num += 1;
         bucket.put(key, data).unwrap();
         if count == buf.len() {
@@ -167,8 +146,7 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> StrResult<us
     }
     let new_size = max(size, (o_offset as usize + count) as usize);
     bucket.put("size", new_size.to_be_bytes()).unwrap();
-    tx.commit()
-        .map_err(|_| "dbfs_file_write_inner: commit failed")?;
+    tx.commit()?;
     Ok(count)
 }
 
@@ -233,6 +211,6 @@ pub fn dbfs_common_open(ino: usize, uid: u32, gid: u32, access_mask: u16) -> Res
     if bool {
         Ok(())
     } else {
-        Err(DbfsError::PermissionDenied)
+        Err(DbfsError::AccessError)
     }
 }

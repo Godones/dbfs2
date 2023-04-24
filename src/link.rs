@@ -50,7 +50,7 @@ pub fn dbfs_common_unlink(
 
     // checkout permission
     if !checkout_access(p_uid, p_gid, p_perm & 0o777, uid, gid, 0o2) {
-        return Err(DbfsError::PermissionDenied);
+        return Err(DbfsError::AccessError);
     }
 
     // find the inode with the name
@@ -79,7 +79,7 @@ pub fn dbfs_common_unlink(
     // "Sticky bit" handling
     let p_perm = DbfsPermission::from_bits_truncate(p_perm);
     if p_perm.contains(DbfsPermission::S_ISVTX) && uid != 0 && uid != p_uid && uid != ino_uid {
-        return Err(DbfsError::PermissionDenied);
+        return Err(DbfsError::AccessError);
     }
 
     // delete the kv pair

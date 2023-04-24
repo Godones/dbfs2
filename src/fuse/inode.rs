@@ -1,10 +1,10 @@
-use crate::common::{DbfsPermission, DbfsTimeSpec};
+use crate::common::{DbfsAttr, DbfsPermission, DbfsResult, DbfsTimeSpec};
 use downcast::_std::time::SystemTime;
 use fuser::{FileAttr, Request};
 
 use rvfs::warn;
 
-use crate::inode::{dbfs_common_create, dbfs_common_lookup};
+use crate::inode::{dbfs_common_create, dbfs_common_lookup, dbfs_common_truncate};
 
 pub fn dbfs_fuse_lookup(parent: u64, name: &str) -> Result<FileAttr, ()> {
     warn!("dbfs_fuse_lookup(parent:{},name:{})", parent, name);
@@ -68,4 +68,14 @@ pub fn dbfs_fuse_mkdir(
         return Err(());
     }
     Ok(res.unwrap().into())
+}
+
+
+
+pub fn dbfs_fuse_truncate(req:&Request<'_>,ino: u64, size: u64) -> DbfsResult<DbfsAttr> {
+    warn!("dbfs_fuse_truncate(ino:{},size:{})", ino, size);
+    let uid = req.uid();
+    let gid = req.gid();
+    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
+    dbfs_common_truncate(uid, gid, ino as usize, ctime, size as usize)
 }

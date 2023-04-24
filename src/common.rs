@@ -1,9 +1,16 @@
+#![allow(unused)]
 use alloc::string::String;
 use bitflags::bitflags;
 use onlyerror::Error;
 
 pub const FMODE_EXEC: i32 = 0x20;
 pub const MAX_PATH_LEN: usize = 255;
+
+
+pub const ACCESS_R_OK:u16 = 4;
+pub const ACCESS_F_OK:u16 = 0;
+pub const ACCESS_W_OK:u16 = 2;
+pub const ACCESS_X_OK:u16 = 1;
 
 #[derive(Debug, Default, Clone)]
 pub struct DbfsDirEntry {
@@ -15,16 +22,26 @@ pub struct DbfsDirEntry {
 
 #[derive(Error, Debug)]
 pub enum DbfsError {
+    #[error("DbfsError::PermissionDenied")]
+    PermissionDenied = 1,
     #[error("DbfsError::NotFound")]
     NotFound = 2,
-    #[error("DbfsError::PermissionDenied")]
-    PermissionDenied = 13,
+    #[error("DbfsError::AccessError")]
+    AccessError = 13,
     #[error("DbfsError::FileExists")]
     FileExists = 17,
     #[error("DbfsError::InvalidArgument")]
     InvalidArgument = 22,
+    #[error("DbfsError::NoSpace")]
+    NoSpace = 28,
+    #[error("DbfsError::RangeError")]
+    RangeError = 34,
     #[error("DbfsError::Io")]
     Io = 5,
+    #[error("DbfsError::NotSupported")]
+    NotSupported = 95,
+    #[error("DbfsError::NoData")]
+    NoData = 61,
     #[error("DbfsError::Other")]
     Other = 999,
 }
@@ -35,10 +52,10 @@ impl From<jammdb::Error> for DbfsError {
     fn from(value: jammdb::Error) -> Self {
         match value {
             jammdb::Error::BucketExists => DbfsError::FileExists,
-            jammdb::Error::BucketMissing => DbfsError::NotFound,
-            jammdb::Error::KeyValueMissing => DbfsError::NotFound,
+            jammdb::Error::BucketMissing => DbfsError::NoData,
+            jammdb::Error::KeyValueMissing => DbfsError::NoData,
             jammdb::Error::IncompatibleValue => DbfsError::InvalidArgument,
-            jammdb::Error::ReadOnlyTx => DbfsError::PermissionDenied,
+            jammdb::Error::ReadOnlyTx => DbfsError::AccessError,
             jammdb::Error::Io(_) => DbfsError::Io,
             jammdb::Error::Sync(_) => DbfsError::Io,
             jammdb::Error::InvalidDB(_) => DbfsError::Other,
@@ -131,6 +148,15 @@ impl From<&[u8]> for DbfsFileType {
             _ => panic!("Invalid file type"),
         }
     }
+}
+
+
+#[derive(Debug)]
+pub enum XattrNamespace {
+    Security,
+    System,
+    Trusted,
+    User,
 }
 
 #[derive(Debug, Copy, Clone, Default)]

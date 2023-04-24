@@ -73,7 +73,7 @@ fn fuse() {
         matches.contains_id("direct-io"),
         matches.contains_id("suid"),
     );
-
+    options.push(MountOption::Atime);
     options.push(MountOption::AllowOther);
     options.push(MountOption::RW);
     fuser::mount2(fs, mountpoint, &options).unwrap();

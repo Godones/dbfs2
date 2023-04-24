@@ -11,10 +11,7 @@ use alloc::vec;
 use downcast::_std::path::Path;
 use downcast::_std::time::SystemTime;
 use fuser::consts::FOPEN_DIRECT_IO;
-use fuser::{
-    Filesystem, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
-    ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request, TimeOrNow,
-};
+use fuser::{Filesystem, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow};
 use jammdb::DB;
 use libc::{c_int, ENOENT};
 use log::{error, info, warn};
@@ -24,11 +21,11 @@ use std::time::Duration;
 use crate::fuse::file::{
     dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_write,
 };
-use crate::fuse::inode::{dbfs_fuse_create, dbfs_fuse_lookup, dbfs_fuse_mkdir};
+use crate::fuse::inode::{dbfs_fuse_create, dbfs_fuse_lookup, dbfs_fuse_mkdir, dbfs_fuse_truncate};
 
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
-use crate::fuse::attr::{dbfs_fuse_access, dbfs_fuse_getattr, dbfs_fuse_setattr, dbfs_fuse_statfs};
+use crate::fuse::attr::{dbfs_fuse_access, dbfs_fuse_chmod, dbfs_fuse_chown, dbfs_fuse_getattr, dbfs_fuse_getxattr, dbfs_fuse_listxattr, dbfs_fuse_removexattr, dbfs_fuse_setxattr, dbfs_fuse_statfs, dbfs_fuse_utimens};
 use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, dbfs_fuse_unlink};
 use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions};
 use crate::init_dbfs;
@@ -105,27 +102,32 @@ impl Filesystem for DbfsFuse {
             }
         }
     }
+    fn forget(&mut self, _req: &Request<'_>, _ino: u64, _nlookup: u64) {
+        info!("forget");
+    }
+
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
         let res = dbfs_fuse_getattr(ino);
         match res {
             Ok(attr) => reply.attr(&TTL, &attr),
             Err(_) => {
                 panic!("getattr error");
-                reply.error(ENOENT)
+                // reply.error(ENOENT)
             }
         }
     }
+    /// It include truncate/chown/chmod/utimens function
     fn setattr(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: u64,
-        _mode: Option<u32>,
-        _uid: Option<u32>,
-        _gid: Option<u32>,
+        mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
         size: Option<u64>,
         atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
-        ctime: Option<SystemTime>,
+        _ctime: Option<SystemTime>,
         _fh: Option<u64>,
         _crtime: Option<SystemTime>,
         _chgtime: Option<SystemTime>,
@@ -133,10 +135,41 @@ impl Filesystem for DbfsFuse {
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        let res = dbfs_fuse_setattr(ino, size, atime, mtime, _fh, ctime, _flags);
-        reply.attr(&TTL, &res.unwrap());
-    }
+        if let Some(mode) = mode {
+            let res = dbfs_fuse_chmod(req, ino, mode);
+            match res {
+                Ok(attr) => reply.attr(&TTL, &attr.into()),
+                Err(x) => reply.error(x as i32),
+            }
+            return;
+        }
+        if uid.is_some() || gid.is_some() {
+            let res = dbfs_fuse_chown(req, ino, uid, gid);
+            match res {
+                Ok(attr) => reply.attr(&TTL, &attr.into()),
+                Err(x) => reply.error(x as i32),
+            }
+            return;
+        }
+        if let Some(size) = size {
+            let res = dbfs_fuse_truncate(req, ino, size);
+            match res {
+                Ok(attr) => reply.attr(&TTL, &attr.into()),
+                Err(x) => reply.error(x as i32),
+            }
+            return;
+        }
 
+        if atime.is_some() || mtime.is_some(){
+            let res = dbfs_fuse_utimens(req, ino, atime, mtime);
+            match res {
+                Ok(attr) => reply.attr(&TTL, &attr.into()),
+                Err(x) => reply.error(x as i32),
+            }
+            return;
+        }
+
+    }
     /// Read the target of a symbolic link
     ///
     /// The buffer should be filled with a null terminated string. The buffer size argument includes the space for the terminating null character.
@@ -147,6 +180,12 @@ impl Filesystem for DbfsFuse {
             Ok(data) => reply.data(&data),
             Err(x) => reply.error(x as i32),
         }
+    }
+
+    /// Make a special (device) file, FIFO, or socket. See mknod(2) for details.
+    /// This function is rarely needed, since it's uncommon to make these objects inside special-purpose filesystems.
+    fn mknod(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, _mode: u32, _umask: u32, _rdev: u32, _reply: ReplyEntry) {
+        panic!("we don't need mknod");
     }
 
     /// Create a directory
@@ -167,6 +206,7 @@ impl Filesystem for DbfsFuse {
             Err(_) => reply.error(ENOENT),
         }
     }
+
     /// Remove a file
     fn unlink(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         let res = dbfs_fuse_unlink(req, parent, name.to_str().unwrap());
@@ -174,7 +214,7 @@ impl Filesystem for DbfsFuse {
             Ok(_) => reply.ok(),
             Err(_) => {
                 panic!("unlink panic");
-                reply.error(ENOENT)
+                // reply.error(ENOENT)
             }
         }
     }
@@ -194,7 +234,6 @@ impl Filesystem for DbfsFuse {
             Err(_) => reply.error(ENOENT),
         }
     }
-
     /// Create a hard link to a file
     fn link(
         &mut self,
@@ -210,7 +249,6 @@ impl Filesystem for DbfsFuse {
             Err(e) => reply.error(e as i32),
         }
     }
-
     /// Open flags are available in fi->flags. The following rules apply.
     ///
     /// * Creation (O_CREAT, O_EXCL, O_NOCTTY) flags will be filtered out / handled by the kernel.
@@ -279,6 +317,7 @@ impl Filesystem for DbfsFuse {
     ) {
         reply.ok();
     }
+
     fn release(
         &mut self,
         _req: &Request<'_>,
@@ -321,11 +360,10 @@ impl Filesystem for DbfsFuse {
             }
             Err(_) => {
                 panic!("opendir error");
-                reply.error(res.err().unwrap() as i32)
+                // reply.error(res.err().unwrap() as i32)
             }
         }
     }
-
     fn readdir(
         &mut self,
         _req: &Request<'_>,
@@ -344,7 +382,6 @@ impl Filesystem for DbfsFuse {
         warn!("releasedir always ok");
         reply.ok()
     }
-
 
     /// Get file system statistics
     //
@@ -367,6 +404,57 @@ impl Filesystem for DbfsFuse {
             Err(_) => reply.error(ENOENT),
         }
     }
+
+    /// Set extended attributes
+    fn setxattr(&mut self, req: &Request<'_>, ino: u64, name: &OsStr, value: &[u8], flags: i32, position: u32, reply: ReplyEmpty) {
+        let res = dbfs_fuse_setxattr(req, ino, name.to_str().unwrap(), value, flags, position);
+        match res {
+            Ok(_) => reply.ok(),
+            Err(x) => reply.error(x as i32),
+        }
+    }
+
+    /// Get extended attributes
+    fn getxattr(&mut self, req: &Request<'_>, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
+        let mut buf = vec![0u8; size as usize];
+        let res  = dbfs_fuse_getxattr(req,ino, name.to_str().unwrap(),buf.as_mut_slice());
+        match res {
+            Ok(x) => {
+                if size == 0 {
+                    reply.size(x as u32);
+                } else {
+                    reply.data(&buf);
+                }
+            }
+            Err(x) => reply.error(x as i32),
+        }
+    }
+
+
+    /// List extended attributes
+    fn listxattr(&mut self, req: &Request<'_>, ino: u64, size: u32, reply: ReplyXattr) {
+        let mut buf = vec![0u8; size as usize];
+        let res = dbfs_fuse_listxattr(req, ino, buf.as_mut_slice());
+        match res {
+            Ok(x) => {
+                if size == 0 {
+                    reply.size(x as u32);
+                } else {
+                    reply.data(&buf);
+                }
+            }
+            Err(x) => reply.error(x as i32),
+        }
+    }
+    /// Remove extended attributes
+    fn removexattr(&mut self, req: &Request<'_>, ino: u64, name: &OsStr, reply: ReplyEmpty) {
+        let res = dbfs_fuse_removexattr(req, ino, name.to_str().unwrap());
+        match res {
+            Ok(_) => reply.ok(),
+            Err(x) => reply.error(x as i32),
+        }
+    }
+
     fn access(&mut self, req: &Request<'_>, ino: u64, mask: i32, reply: ReplyEmpty) {
         let res = dbfs_fuse_access(req,ino,mask);
         match res {
@@ -380,7 +468,6 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
-
     /// Create and open a file
     ///
     /// If the file does not exist, first create it with the specified mode, and then open it.
