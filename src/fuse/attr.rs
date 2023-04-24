@@ -68,16 +68,6 @@ pub fn dbfs_fuse_chown(req:&Request<'_>,ino: u64,uid:Option<u32>,gid:Option<u32>
 
 pub fn dbfs_fuse_utimens(req:&Request<'_>,ino: u64, atime: Option<TimeOrNow>, mtime: Option<TimeOrNow>) -> DbfsResult<DbfsAttr> {
     warn!("dbfs_fuse_utimens(ino:{},atime:{:?},mtime:{:?})", ino,atime,mtime);
-    if let Some(time) = atime{
-        if time != TimeOrNow::Now{
-            return Err(DbfsError::PermissionDenied)
-        }
-    }
-    if let Some(time) = mtime{
-        if time != TimeOrNow::Now{
-            return Err(DbfsError::PermissionDenied)
-        }
-    }
     let atime = atime.map(|t|{
         match t {
             TimeOrNow::Now => DbfsTimeSpec::from(SystemTime::now()).into(),

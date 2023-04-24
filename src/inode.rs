@@ -7,6 +7,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::cmp::min;
 use core::sync::atomic::AtomicUsize;
+use log::error;
 use rvfs::dentry::{DirEntry, LookUpData};
 use rvfs::file::{FileMode, FileOps};
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode, InodeOps};
@@ -253,32 +254,12 @@ pub fn dbfs_common_attr(number: usize) -> Result<DbfsAttr, ()> {
 }
 
 fn dbfs_rmdir(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
-    let db = clone_db();
-    let tx = db.tx(true).unwrap();
     let number = dir.number;
-    let dir_bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
     let name = &dentry.access_inner().d_name;
-    let value = dir_bucket.kv_pairs().find(|kv| {
-        kv.key().starts_with("data".as_bytes()) && kv.value().starts_with(name.as_bytes())
-    });
-    if value.is_none() {
-        return Err("dir not found");
-    }
-    let value = value.unwrap();
-    let v_value = value.value();
-    let str = core::str::from_utf8(v_value).unwrap();
-    let data = str.rsplitn(2, ':').collect::<Vec<&str>>();
-    let number = data[0].parse::<usize>().unwrap();
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
-    let mode = bucket.get_kv("mode").unwrap();
-    let inode_mode = InodeMode::from(mode.value());
-    if !inode_mode == InodeMode::S_DIR {
-        return Err("not a dir");
-    }
-    // delete dentry in db
-    dir_bucket.delete(value.key()).unwrap();
-    tx.delete_bucket(number.to_be_bytes()).unwrap();
-    tx.commit().unwrap();
+    dbfs_common_rmdir(0,0,number,name,0).map_err(|x|{
+        warn!("dbfs_common_rmdir failed: {:?}",x);
+        "dbfs_common_rmdir failed"
+    })?;
     dir.access_inner().file_size -= 1;
     Ok(())
 }
@@ -754,6 +735,71 @@ pub fn dbfs_common_truncate(r_uid:u32,r_gid:u32,ino:usize,ctime:usize,f_size:usi
 
     tx.commit()?;
     Ok(attr)
+}
+
+
+pub fn dbfs_common_rmdir(r_uid:u32,r_gid:u32,p_ino:usize,name:&str,c_time:usize)->DbfsResult<()>{
+    let db = clone_db();
+    let tx = db.tx(true)?;
+    let p_bucket = tx.get_bucket(p_ino.to_be_bytes())?;
+    // find the inode for the name
+    let value = p_bucket.kv_pairs().find(|kv| {
+        kv.key().starts_with("data".as_bytes()) && kv.value().starts_with(name.as_bytes())
+    });
+    if value.is_none() {
+        return Err(DbfsError::NotFound);
+    }
+    let value = value.unwrap();
+    let v_value = value.value();
+    let str = core::str::from_utf8(v_value).unwrap();
+    let data = str.rsplitn(2, ':').collect::<Vec<&str>>();
+    let number = data[0].parse::<usize>().unwrap();
+    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+
+    // checkout the directory is empty
+    let size = bucket.get_kv("size").unwrap();
+    let size = usize!(size.value());
+    // if size > 2, it means the directory is not empty
+    //  Directories always have a self and parent link
+    if size > 2{
+        return Err(DbfsError::NotEmpty);
+    }
+    let p_uid = p_bucket.get_kv("uid").unwrap();
+    let p_uid = u32!(p_uid.value());
+    let p_gid = p_bucket.get_kv("gid").unwrap();
+    let p_gid = u32!(p_gid.value());
+    let p_mode = p_bucket.get_kv("mode").unwrap();
+    let p_mode = u16!(p_mode.value());
+    let p_size = p_bucket.get_kv("size").unwrap();
+    let p_size = usize!(p_size.value());
+    if !checkout_access(
+        p_uid,
+        p_gid,
+        p_mode&0o777,
+        r_uid,
+        r_gid,
+        ACCESS_W_OK
+    ){
+        return Err(DbfsError::AccessError);
+    }
+    // "Sticky bit" handling
+    let uid = bucket.get_kv("uid").unwrap();
+    let uid = u32!(uid.value());
+    let p_perm = DbfsPermission::from_bits_truncate(p_mode);
+    if p_perm.contains(DbfsPermission::S_ISVTX)
+        && r_uid !=0 && r_uid != p_uid && r_uid != uid{
+        return Err(DbfsError::AccessError);
+    }
+    // update the parent directory
+    p_bucket.put("mtime", c_time.to_be_bytes())?;
+    p_bucket.put("ctime", c_time.to_be_bytes())?;
+    // delete the directory
+    p_bucket.delete(value.key())?;
+    p_bucket.put("size", (p_size - 1).to_be_bytes())?;
+    // delete the inode
+    tx.delete_bucket(number.to_be_bytes())?;
+    tx.commit()?;
+    Ok(())
 }
 
 fn inode_ops_from_inode_mode(inode_mode: InodeMode) -> InodeOps {

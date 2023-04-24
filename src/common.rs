@@ -36,6 +36,8 @@ pub enum DbfsError {
     NoSpace = 28,
     #[error("DbfsError::RangeError")]
     RangeError = 34,
+    #[error("DbfsError::NotEmpty")]
+    NotEmpty = 39,
     #[error("DbfsError::Io")]
     Io = 5,
     #[error("DbfsError::NotSupported")]

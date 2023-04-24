@@ -4,7 +4,7 @@ use fuser::{FileAttr, Request};
 
 use rvfs::warn;
 
-use crate::inode::{dbfs_common_create, dbfs_common_lookup, dbfs_common_truncate};
+use crate::inode::{dbfs_common_create, dbfs_common_lookup, dbfs_common_rmdir, dbfs_common_truncate};
 
 pub fn dbfs_fuse_lookup(parent: u64, name: &str) -> Result<FileAttr, ()> {
     warn!("dbfs_fuse_lookup(parent:{},name:{})", parent, name);
@@ -78,4 +78,14 @@ pub fn dbfs_fuse_truncate(req:&Request<'_>,ino: u64, size: u64) -> DbfsResult<Db
     let gid = req.gid();
     let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
     dbfs_common_truncate(uid, gid, ino as usize, ctime, size as usize)
+}
+
+
+
+pub fn dbfs_fuse_rmdir(req: &Request<'_>, parent: u64, name: &str) -> DbfsResult<()> {
+    warn!("dbfs_fuse_rmdir(parent:{},name:{})", parent, name);
+    let uid = req.uid();
+    let gid = req.gid();
+    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
+    dbfs_common_rmdir(uid, gid, parent as usize, name, ctime)
 }

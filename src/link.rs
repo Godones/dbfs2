@@ -30,7 +30,7 @@ pub fn dbfs_common_unlink(
     // check if the name exists
     let value = p_bucket
         .kv_pairs()
-        .find(|kv| kv.value().starts_with(name.as_bytes()));
+        .find(|kv|kv.key().starts_with(b"data")&&kv.value().starts_with(name.as_bytes()));
     if value.is_none() {
         return Err(DbfsError::NotFound);
     }

@@ -21,7 +21,7 @@ use std::time::Duration;
 use crate::fuse::file::{
     dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_write,
 };
-use crate::fuse::inode::{dbfs_fuse_create, dbfs_fuse_lookup, dbfs_fuse_mkdir, dbfs_fuse_truncate};
+use crate::fuse::inode::{dbfs_fuse_create, dbfs_fuse_lookup, dbfs_fuse_mkdir, dbfs_fuse_rmdir, dbfs_fuse_truncate};
 
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
@@ -164,7 +164,10 @@ impl Filesystem for DbfsFuse {
             let res = dbfs_fuse_utimens(req, ino, atime, mtime);
             match res {
                 Ok(attr) => reply.attr(&TTL, &attr.into()),
-                Err(x) => reply.error(x as i32),
+                Err(x) => {
+                    panic!("modify time error");
+                    // reply.error(x as i32)
+                }
             }
             return;
         }
@@ -219,6 +222,14 @@ impl Filesystem for DbfsFuse {
         }
     }
 
+    /// Remove the given directory. This should succeed only if the directory is empty (except for "." and "..").
+    fn rmdir(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        let res = dbfs_fuse_rmdir(req,parent, name.to_str().unwrap());
+        match res {
+            Ok(_) => reply.ok(),
+            Err(x) => reply.error(x as i32),
+        }
+    }
     /// Create a symbolic link
     fn symlink(
         &mut self,
@@ -249,6 +260,7 @@ impl Filesystem for DbfsFuse {
             Err(e) => reply.error(e as i32),
         }
     }
+
     /// Open flags are available in fi->flags. The following rules apply.
     ///
     /// * Creation (O_CREAT, O_EXCL, O_NOCTTY) flags will be filtered out / handled by the kernel.
@@ -345,7 +357,6 @@ impl Filesystem for DbfsFuse {
     ) {
         error!("fsync not implemented");
     }
-
     /// Open directory
     ///
     /// Unless the 'default_permissions' mount option is given, this method should check if opendir is permitted for this directory.
@@ -364,6 +375,7 @@ impl Filesystem for DbfsFuse {
             }
         }
     }
+
     fn readdir(
         &mut self,
         _req: &Request<'_>,
@@ -414,6 +426,7 @@ impl Filesystem for DbfsFuse {
         }
     }
 
+
     /// Get extended attributes
     fn getxattr(&mut self, req: &Request<'_>, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
         let mut buf = vec![0u8; size as usize];
@@ -429,8 +442,6 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
-
-
     /// List extended attributes
     fn listxattr(&mut self, req: &Request<'_>, ino: u64, size: u32, reply: ReplyXattr) {
         let mut buf = vec![0u8; size as usize];
@@ -446,6 +457,7 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
+
     /// Remove extended attributes
     fn removexattr(&mut self, req: &Request<'_>, ino: u64, name: &OsStr, reply: ReplyEmpty) {
         let res = dbfs_fuse_removexattr(req, ino, name.to_str().unwrap());
@@ -454,7 +466,6 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
-
     fn access(&mut self, req: &Request<'_>, ino: u64, mask: i32, reply: ReplyEmpty) {
         let res = dbfs_fuse_access(req,ino,mask);
         match res {
@@ -468,6 +479,7 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
+
     /// Create and open a file
     ///
     /// If the file does not exist, first create it with the specified mode, and then open it.
