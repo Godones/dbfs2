@@ -4,9 +4,9 @@ use crate::{clone_db, u32, u64, usize};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::sync::{Arc, Weak};
-use alloc::{format, vec};
+use alloc::{vec};
 
-use crate::common::DbfsFsStat;
+use crate::common::{DbfsFsStat, generate_data_key};
 use rvfs::dentry::{DirEntry, DirEntryOps, DirFlags};
 use rvfs::file::FileMode;
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode};
@@ -148,6 +148,7 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: usize) -> Result<usize,
     let db = clone_db();
     let tx = db.tx(true).unwrap();
     if tx.get_bucket(1usize.to_be_bytes()).is_err() {
+        // The root dir
         let permission = permission_from_mode(FileMode::FMODE_RDWR, InodeMode::S_DIR);
         let new_inode = tx.create_bucket(1usize.to_be_bytes()).unwrap();
         DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
@@ -164,13 +165,12 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: usize) -> Result<usize,
         new_inode.put("mtime", ctime.to_be_bytes()).unwrap();
         new_inode.put("ctime", ctime.to_be_bytes()).unwrap();
         new_inode.put("block_size", 512u32.to_be_bytes()).unwrap();
-        new_inode.put("next_number", 0usize.to_be_bytes()).unwrap();
+        new_inode.put("next_number", 1u32.to_be_bytes()).unwrap();
         new_inode.put("size", 1usize.to_be_bytes()).unwrap();
 
         // insert dot  file
-        let dot = format!("data{}", 0);
-        let dot_value = format!("{}:{}", ".", 1usize);
-        new_inode.put(dot, dot_value).unwrap();
+        let key = generate_data_key(0);
+        new_inode.put(key, ".:1").unwrap();
     }
     let bucket = tx.get_bucket(1usize.to_be_bytes()).unwrap();
     let count = bucket.get_kv("size").unwrap();
@@ -236,7 +236,7 @@ pub fn dbfs_common_statfs(
         f_blocks: disk_size / blk_size,
         f_bfree: disk_size / blk_size,
         f_bavail: disk_size / blk_size,
-        f_files: total_inodes - 1,
+        f_files: total_inodes,
         f_ffree: 999,
         f_favail: 999,
         f_fsid: magic as u64,

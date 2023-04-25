@@ -1,98 +1,53 @@
 use jammdb::memfile::{FakeMap, FileOpenOptions};
-use jammdb::{Bucket, DB};
-use std::cmp::min;
-use std::fmt::{Debug, Display};
+use jammdb::{Data, DB};
+
+
+use std::ops::Range;
 use std::sync::Arc;
 
 fn main() {
     let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database.db").unwrap();
     let tx = db.tx(true).unwrap();
     let bucket = tx.create_bucket("file").unwrap();
-    bucket.put("name", "hello").unwrap();
-    bucket.put("data1", "world").unwrap();
-    bucket.put("data2", "world").unwrap();
-    bucket.put("data3", "world").unwrap();
-    bucket.put("data11", "world").unwrap();
-    bucket.put("data111", "world").unwrap();
-    tx.commit().unwrap();
-    let tx = db.tx(true).unwrap();
-    let bucket = tx.get_bucket("file").unwrap();
-    bucket.kv_pairs().for_each(|x| {
-        let key = String::from_utf8_lossy(x.key()).to_string();
-        let value = String::from_utf8_lossy(x.value()).to_string();
-        println!("{}:{}", key, value);
+    for i in 0..100{
+        let key  = generate_datakey(i);
+        let value = format!("value{i}");
+        bucket.put(key, value.as_bytes().to_owned()).unwrap();
+    }
+    let start_key = generate_datakey(10);
+    let end_key = generate_datakey(20);
+    let rang = Range{
+        start: start_key.as_slice(),
+        end: end_key.as_slice(),
+    };
+    bucket.range(rang).for_each(|x|{
+        match x {
+            Data::Bucket(x) => {
+                println!("bucket: {x:?}")
+            }
+            Data::KeyValue(x) =>{
+                println!("keyvalue: {x:?}")
+            }
+        }
     });
-
-    let n_bucket = bucket.create_bucket("dir1").unwrap();
-    solve(n_bucket);
+    let d_bucket = tx.create_bucket("dir").unwrap();
+    d_bucket.put("dir1","dir1").unwrap();
+    d_bucket.put("dir2","dir2").unwrap();
+    let t_bucket = tx.get_bucket("dir").unwrap();
+    t_bucket.delete("dir1").unwrap();
     tx.commit().unwrap();
 
-    println!("--------");
-    let tx = db.tx(true).unwrap();
-    let bucket = tx.get_bucket("file").unwrap();
-    let n_bucket = bucket.get_bucket("dir1").unwrap();
-    let value = n_bucket.get_kv("name").unwrap();
-    println!(
-        "{}:{}",
-        core::str::from_utf8(value.key()).unwrap(),
-        core::str::from_utf8(value.value()).unwrap()
-    );
-
-    test("name".to_string(), n_bucket);
-    println!("{}", format!("data{:04x}", 3));
-    let mut buf = [0u8; 10];
-    let x = execute(example_fun, &mut buf);
-    println!("{:?}", x);
-    println!("{:?}", core::str::from_utf8(&buf[0..x]));
-    tx.commit().unwrap();
-
-    for i in 1..1 {
-        println!("{}", format!("data{:04x}", i));
-    }
+    let tx = db.tx(false).unwrap();
+    let bucket = tx.get_bucket("dir").unwrap();
+    let value = bucket.get("dir1");
+    println!("{value:?}");
 }
 
-fn test(key: String, bucket: Bucket) {
-    bucket.put(key, "hello").unwrap();
+
+fn generate_datakey(num:u32)->Vec<u8>{
+    let mut datakey = b"data".to_vec();
+    datakey.extend_from_slice(&num.to_be_bytes());
+    datakey
 }
 
-fn solve(bucket: Bucket) {
-    bucket.put("name", "hello").unwrap();
-}
 
-pub enum Para<'a, 'tx> {
-    Data(&'a [u8]),
-    Bucket(Bucket<'a, 'tx>),
-}
-
-#[repr(C)]
-pub struct MyPara<'a, 'tx>(Para<'a, 'tx>);
-
-fn execute<T, R: Display + Debug>(func: T, buf: &mut [u8]) -> R
-where
-    T: FnOnce(MyPara, &mut [u8]) -> R,
-{
-    let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database1.db").unwrap();
-    let tx = db.tx(true).unwrap();
-    let bucket = tx.create_bucket("file").unwrap();
-    bucket.put("name", "hello").unwrap();
-    let para = MyPara(Para::Bucket(bucket));
-    let r = func(para, buf);
-    tx.commit().unwrap();
-    r
-}
-
-fn example_fun(para: MyPara, buf: &mut [u8]) -> usize {
-    match para.0 {
-        Para::Data(data) => {
-            let len = min(buf.len(), data.len());
-            buf[..len].copy_from_slice(&data[..len]);
-            len
-        }
-        Para::Bucket(bucket) => {
-            let value = bucket.get_kv("name").unwrap();
-            let len = min(buf.len(), value.value().len());
-            buf[..len].copy_from_slice(&value.value()[..len]);
-            len
-        }
-    }
-}

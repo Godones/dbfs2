@@ -47,8 +47,7 @@ pub fn dbfs_fuse_symlink(
         time,
         permission,
         Some(link),
-    )
-    .map_err(|_| DbfsError::NotFound)?;
+    )?;
     Ok(attr)
 }
 

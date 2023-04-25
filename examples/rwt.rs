@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use jammdb::DB;
-use jammdb::memfile::{FakeMap, FileOpenOptions};
-use rvfs::file::{FileMode, OpenFlags, vfs_mkdir, vfs_open_file, vfs_read_file, vfs_write_file};
-use rvfs::{FakeFSC, init_process_info};
-use rvfs::dentry::{vfs_truncate, vfs_truncate_by_file};
-use rvfs::mount::{do_mount, MountFlags};
-use rvfs::stat::{vfs_getattr_by_file};
-use rvfs::superblock::register_filesystem;
 use dbfs2::DBFS;
+use jammdb::memfile::{FakeMap, FileOpenOptions};
+use jammdb::DB;
+use rvfs::dentry::{vfs_truncate, vfs_truncate_by_file};
+use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_read_file, vfs_write_file, FileMode, OpenFlags};
+use rvfs::mount::{do_mount, MountFlags};
+use rvfs::stat::vfs_getattr_by_file;
+use rvfs::superblock::register_filesystem;
+use rvfs::{init_process_info, FakeFSC};
+use std::sync::Arc;
 
 fn main() {
     env_logger::init();
@@ -23,8 +23,8 @@ fn main() {
         OpenFlags::O_RDWR | OpenFlags::O_CREAT,
         FileMode::FMODE_WRITE,
     )
-        .unwrap();
-    println!("file1:{:#?}", file);
+    .unwrap();
+    println!("file1:{file:#?}");
     let _db = do_mount::<FakeFSC>("block", "/db", "dbfs", MountFlags::empty(), None).unwrap();
     // println!("db mnt:{:#?}", db);
 
@@ -32,27 +32,35 @@ fn main() {
         "/db/f1",
         OpenFlags::O_RDWR | OpenFlags::O_CREAT,
         FileMode::FMODE_WRITE,
-    ).unwrap();
+    )
+    .unwrap();
     vfs_write_file::<FakeFSC>(dbf1.clone(), b"hello world", 0).unwrap();
     let stat = vfs_getattr_by_file(dbf1.clone()).unwrap();
-    println!("stat:{:#?}",stat); // size == 11
+    println!("stat:{stat:#?}"); // size == 11
     vfs_truncate_by_file(dbf1.clone(), 5).unwrap();
     let stat = vfs_getattr_by_file(dbf1.clone()).unwrap();
-    println!("stat:{:#?}",stat); // size == 5
-    let mut buf = [0u8; 1024];
+    println!("stat:{stat:#?}"); // size == 5
+    let mut buf = [0u8; 2048];
     let r = vfs_read_file::<FakeFSC>(dbf1.clone(), &mut buf, 0).unwrap();
     println!("read:{}", std::str::from_utf8(&buf[..r]).unwrap());
     vfs_truncate::<FakeFSC>("/db/f1", 20).unwrap();
     let stat = vfs_getattr_by_file(dbf1.clone()).unwrap();
-    println!("stat:{:#?}",stat); // size == 20
+    println!("stat:{stat:#?}"); // size == 20
     let r = vfs_read_file::<FakeFSC>(dbf1.clone(), &mut buf, 0).unwrap();
-    println!("read byte:{}, content:{:?}", r,&buf[..r]); //20
+    println!("read byte:{}, content:{:?}", r, &buf[..r]); //20
     vfs_write_file::<FakeFSC>(dbf1.clone(), b"hello world", 0).unwrap();
     let stat = vfs_getattr_by_file(dbf1.clone()).unwrap();
-    println!("stat:{:#?}",stat); // size == 20
+    println!("stat:{stat:#?}"); // size == 20
+
+    let r = vfs_write_file::<FakeFSC>(dbf1.clone(), b"hello world", 1024).unwrap();
+    println!("write byte:{r}"); // 11
+
+    let stat = vfs_getattr_by_file(dbf1.clone()).unwrap();
+    println!("stat:{stat:#?}"); // size == 1024 + 11
+
+    let r = vfs_read_file::<FakeFSC>(dbf1, &mut buf, 0).unwrap();
+    println!("read {r} bytes"); // == 1024 + 11 = 1035
 }
-
-
 
 fn init_db(db: &DB) {
     let tx = db.tx(true).unwrap();

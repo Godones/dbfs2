@@ -1,16 +1,18 @@
 #![allow(unused)]
 use alloc::string::String;
+use alloc::vec::Vec;
 use bitflags::bitflags;
 use onlyerror::Error;
 
 pub const FMODE_EXEC: i32 = 0x20;
 pub const MAX_PATH_LEN: usize = 255;
 
+pub const ACCESS_R_OK: u16 = 4;
+pub const ACCESS_F_OK: u16 = 0;
+pub const ACCESS_W_OK: u16 = 2;
+pub const ACCESS_X_OK: u16 = 1;
 
-pub const ACCESS_R_OK:u16 = 4;
-pub const ACCESS_F_OK:u16 = 0;
-pub const ACCESS_W_OK:u16 = 2;
-pub const ACCESS_X_OK:u16 = 1;
+pub const RENAME_EXCHANGE:u32 = 0x2;
 
 #[derive(Debug, Default, Clone)]
 pub struct DbfsDirEntry {
@@ -152,7 +154,6 @@ impl From<&[u8]> for DbfsFileType {
     }
 }
 
-
 #[derive(Debug)]
 pub enum XattrNamespace {
     Security,
@@ -243,6 +244,16 @@ pub struct DbfsFsStat {
     pub f_namemax: u64,
     pub name: [u8; 32],
 }
+
+
+pub fn generate_data_key(num:u32)->Vec<u8>{
+    let mut datakey = b"data:".to_vec();
+    datakey.extend_from_slice(&num.to_be_bytes());
+    datakey
+}
+
+
+
 
 #[cfg(feature = "fuse")]
 mod impl_fuse {

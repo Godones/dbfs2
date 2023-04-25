@@ -1,16 +1,16 @@
-use crate::{clone_db, u16, usize};
+use crate::{clone_db, u16, u32, usize};
 use alloc::borrow::ToOwned;
 
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use alloc::{format, vec};
+use alloc::{vec};
 use core::cmp::{max, min};
 use core::ops::Range;
 use jammdb::Data;
-use log::{debug, error};
+use log::{debug, error, warn};
 
-use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult};
+use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, generate_data_key};
 use crate::inode::{checkout_access, dbfs_common_attr};
 use rvfs::dentry::DirContext;
 use rvfs::file::{File, FileOps};
@@ -39,13 +39,13 @@ fn dbfs_file_write(file: Arc<File>, buf: &[u8], offset: u64) -> StrResult<usize>
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
-    dbfs_common_write(numer, buf, offset).map_err(|_|"dbfs_common_write error")
+    dbfs_common_write(numer, buf, offset).map_err(|_| "dbfs_common_write error")
 }
 fn dbfs_file_read(file: Arc<File>, buf: &mut [u8], offset: u64) -> StrResult<usize> {
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
-    dbfs_common_read(numer, buf, offset).map_err(|_|"dbfs_common_read error")
+    dbfs_common_read(numer, buf, offset).map_err(|_| "dbfs_common_read error")
 }
 
 /// the file data in dbfs is stored as a set of key-value pairs
@@ -54,7 +54,12 @@ fn dbfs_file_read(file: Arc<File>, buf: &mut [u8], offset: u64) -> StrResult<usi
 /// * ....
 /// * datai: \[u8;512]
 pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResult<usize> {
-    debug!("dbfs_common_read ino: {}, offset: {}, buf.len: {}", number, offset, buf.len());
+    debug!(
+        "dbfs_common_read ino: {}, offset: {}, buf.len: {}",
+        number,
+        offset,
+        buf.len()
+    );
     let db = clone_db();
     let tx = db.tx(false)?;
     let bucket = tx.get_bucket(number.to_be_bytes())?;
@@ -63,19 +68,23 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     if offset >= size as u64 {
         return Ok(0);
     }
-    let num = offset / 512;
+    let mut start_num = offset / 512;
     // let mut offset = offset % 512;
     let mut buf_offset = 0;
-    let _total = 0;
     let end_num = (offset + buf.len() as u64) / 512 + 1;
+    let f_end_num = size / 512 + 1;
+    let end_num = min(end_num, f_end_num as u64);
 
-    let start_key = format!("data{:04x}", num as u32);
-    let end_key = format!("data{:04x}", end_num as u32);
+    let start_key = generate_data_key(start_num as u32);
+    let end_key = generate_data_key(end_num as u32);
+
+    warn!("start_key: {:?}, end_key: {:?}", start_key.as_slice(), end_key.as_slice());
     let range = Range {
-        start: start_key.as_bytes(),
-        end: end_key.as_bytes(),
+        start: start_key.as_slice(),
+        end: end_key.as_slice(),
     };
     let iter = bucket.range(range);
+    let tmp = [0u8; 512];
     for data in iter {
         match data {
             Data::Bucket(_) => {
@@ -84,17 +93,37 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
             Data::KeyValue(kv) => {
                 let value = kv.value();
                 let key = kv.key();
-                let key = core::str::from_utf8(key).unwrap();
-                let index = key.splitn(2, "data").nth(1).unwrap();
-                let index = u32::from_str_radix(index, 16).unwrap();
+                warn!("key: {:?}", key);
+                let index = key.splitn(2, |c| *c == b':').nth(1).unwrap();
+                let index = u32!(index);
+
+                if index as u64 != start_num {
+                    for i in start_num as u32..index {
+                        let current_size = i as usize * 512; // offset = 1000 ,current_size >= 512,1024 => offset= 1000 - 512 = 488
+                        let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,512)范围
+                        let real_size = min(size - current_size, 512);
+                        let len = min(
+                            buf.len() - buf_offset,
+                            real_size.saturating_sub(value_offset),
+                        );
+                        buf[buf_offset..buf_offset + len]
+                            .copy_from_slice(&tmp[value_offset..value_offset + len]);
+                        buf_offset += len;
+                    }
+                    start_num = index as u64 + 1;
+                }
                 let current_size = index as usize * 512; // offset = 1000 ,current_size >= 512,1024 => offset= 1000 - 512 = 488
                 let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,512)范围
                 let real_size = min(size - current_size, 512);
-                let len = min(buf.len() - buf_offset, real_size - value_offset);
+                let len = min(
+                    buf.len() - buf_offset,
+                    real_size.saturating_sub(value_offset),
+                );
                 buf[buf_offset..buf_offset + len]
                     .copy_from_slice(&value[value_offset..value_offset + len]);
-
                 buf_offset += len;
+                start_num += 1;
+                warn!("read len: {}", len);
             }
         }
         if buf_offset == buf.len() {
@@ -122,8 +151,8 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let mut offset = offset % 512;
     let mut count = 0;
     loop {
-        let key = format!("data{:04x}", num as u32);
-        let kv = bucket.get_kv(key.as_bytes());
+        let key = generate_data_key(num as u32);
+        let kv = bucket.get_kv(key.as_slice());
         let mut data = if kv.is_some() {
             // the existed data
             kv.unwrap().value().to_owned()
@@ -137,7 +166,7 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
         let len = min(buf.len() - count, 512 - offset as usize);
         data[offset as usize..offset as usize + len].copy_from_slice(&buf[count..count + len]);
         count += len;
-        offset  = (offset + len as u64) % 512;
+        offset = (offset + len as u64) % 512;
         num += 1;
         bucket.put(key, data).unwrap();
         if count == buf.len() {
@@ -159,7 +188,7 @@ fn dbfs_readdir(file: Arc<File>) -> StrResult<DirContext> {
     let bucket = tx.get_bucket(numer.to_be_bytes()).unwrap();
     let mut data = vec![];
     bucket.kv_pairs().for_each(|x| {
-        if x.key().starts_with("data".as_bytes()) {
+        if x.key().starts_with("data:".as_bytes()){
             let value = x.value();
             let str = core::str::from_utf8(value).unwrap();
             let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
@@ -178,30 +207,46 @@ pub fn dbfs_common_readdir(
     let db = clone_db();
     let tx = db.tx(false).unwrap();
     let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    buf.clear();
+    let next_number = bucket.get_kv("next_number").unwrap();
+    let next_number = u32!(next_number.value());
     let mut count = 0;
-    for i in offset as usize..buf.len() + offset as usize {
-        let mut x = &mut buf[i - offset as usize];
-        let key = format!("data{}", i);
-        let value = bucket.get_kv(key.as_bytes());
-        if value.is_none() {
-            continue;
+
+    let start_key = generate_data_key(offset as u32);
+    let end_key = generate_data_key(next_number);
+    let range = Range{
+        start: start_key.as_slice(),
+        end: end_key.as_slice(),
+    };
+
+    bucket.range(range).for_each(|x|{
+        if let Data::KeyValue(kv) = x{
+            let key = kv.key();
+            let key = key.splitn(2,|x|*x == b':').collect::<Vec<&[u8]>>();
+            let key = key[1];
+            let offset = u32!(key);
+            let value = kv.value();
+            let str = core::str::from_utf8(value).unwrap();
+            let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
+            let inode_number = name[0].parse::<usize>().unwrap();
+            let inode = tx.get_bucket(inode_number.to_be_bytes()).unwrap();
+            let mut entry = DbfsDirEntry::default();
+            entry.name = name[1].to_string();
+            entry.ino = inode_number as u64;
+            entry.offset = offset as u64;
+            let mode = inode.get_kv("mode").unwrap();
+            let mode = u16!(mode.value());
+            let perm = DbfsPermission::from_bits_truncate(mode);
+            entry.kind = DbfsFileType::from(perm);
+            buf.push(entry);
+            count += 1;
         }
-        let value = value.unwrap();
-        count += 1;
-        let str = core::str::from_utf8(value.value()).unwrap();
-        let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
-        x.name = name[1].to_string();
-        let inode_number = name[0].parse::<usize>().unwrap();
-        x.ino = inode_number as u64;
-        x.offset = i as u64;
-        // x.kind
-        let inode = tx.get_bucket(inode_number.to_be_bytes()).unwrap();
-        let mode = inode.get_kv("mode").unwrap();
-        let mode = u16!(mode.value());
-        let perm = DbfsPermission::from_bits_truncate(mode);
-        x.kind = DbfsFileType::from(perm);
-    }
-    error!("dbfs_common_readdir: count: {},buf:{:?}", count,&buf[0..count]);
+    });
+    error!(
+        "dbfs_common_readdir: offset: {}, count: {}, buf:{:?}",
+        offset,count,
+        &buf[0..count]
+    );
     Ok(count)
 }
 
@@ -213,4 +258,40 @@ pub fn dbfs_common_open(ino: usize, uid: u32, gid: u32, access_mask: u16) -> Res
     } else {
         Err(DbfsError::AccessError)
     }
+}
+
+pub fn dbfs_common_copy_file_range(
+    _uid: u32,
+    _gid: u32,
+    src: usize,
+    offset_src: usize,
+    dest: usize,
+    offset_dest: usize,
+    len: usize,
+    ctime: usize,
+) -> DbfsResult<usize> {
+    // now we ignore the uid and gid
+    let db = clone_db();
+    let src_size = {
+        let tx = db.tx(false)?;
+        let bucket = tx.get_bucket(src.to_be_bytes())?;
+        let size = bucket.get_kv("size").unwrap();
+        let size = usize!(size.value());
+        size
+    };
+    let read_size = min(src_size.saturating_sub(offset_src), len);
+    let mut buf = vec![0; read_size];
+    let read_size = { dbfs_common_read(src, &mut buf, offset_src as u64)? };
+
+    let write_size = { dbfs_common_write(dest, &buf[..read_size], offset_dest as u64)? };
+
+    // update dest ctime/mtime
+    {
+        let tx = db.tx(true)?;
+        let bucket = tx.get_bucket(dest.to_be_bytes())?;
+        bucket.put("ctime", ctime.to_be_bytes())?;
+        bucket.put("mtime", ctime.to_be_bytes())?;
+        tx.commit()?;
+    }
+    Ok(write_size)
 }

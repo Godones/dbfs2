@@ -7,7 +7,7 @@ fn test() {
     env_logger::init();
     init_dbfs_fuse("./test.dbfs", 64 * 1024 * 1024);
     let attr = dbfs_fuse_getattr(0).unwrap();
-    println!("attr: {:#?}", attr);
+    println!("attr: {attr:#?}");
 }
 
 fn fuse() {

@@ -22,7 +22,7 @@ fn main() {
         FileMode::FMODE_WRITE,
     )
     .unwrap();
-    println!("file1:{:#?}", file);
+    println!("file1:{file:#?}");
     let _db = do_mount::<FakeFSC>("block", "/db", "dbfs", MountFlags::empty(), None).unwrap();
     // println!("db mnt:{:#?}", db);
 
@@ -44,8 +44,8 @@ fn main() {
     // let res = vfs_llseek(f1_file.clone(),SeekFrom::Start(0)).unwrap();
     // println!("seek to 0, res:{}",res);
     let mut read_buf = [0; 1024];
-    let read = vfs_read_file::<FakeFSC>(f1_file.clone(), &mut read_buf, 0).unwrap();
-    println!("read:{}", read);
+    let read = vfs_read_file::<FakeFSC>(f1_file, &mut read_buf, 0).unwrap();
+    println!("read:{read}");
     assert_eq!(buf, read_buf);
 }
 fn init_db(db: &DB) {

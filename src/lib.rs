@@ -1,5 +1,6 @@
 #![feature(error_in_core)]
 #![cfg_attr(not(test), no_std)]
+#![allow(unused)]
 extern crate alloc;
 
 mod dir;
@@ -19,9 +20,9 @@ pub mod extend;
 #[cfg(feature = "fuse")]
 pub mod fuse;
 
+mod attr;
 mod common;
 mod link;
-mod attr;
 
 struct SafeDb(DB);
 

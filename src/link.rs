@@ -1,6 +1,6 @@
-use crate::common::{DbfsError, DbfsPermission, DbfsResult};
+use crate::common::{ACCESS_W_OK, DbfsError, DbfsPermission, DbfsResult};
 use crate::inode::checkout_access;
-use crate::{clone_db, u16, u32};
+use crate::{clone_db, u16, u32, usize};
 use core::cmp::min;
 use log::{error, warn};
 
@@ -30,7 +30,7 @@ pub fn dbfs_common_unlink(
     // check if the name exists
     let value = p_bucket
         .kv_pairs()
-        .find(|kv|kv.key().starts_with(b"data")&&kv.value().starts_with(name.as_bytes()));
+        .find(|kv| kv.key().starts_with(b"data") && kv.value().starts_with(name.as_bytes()));
     if value.is_none() {
         return Err(DbfsError::NotFound);
     }
@@ -49,7 +49,7 @@ pub fn dbfs_common_unlink(
     let p_perm = u16!(p_perm.value());
 
     // checkout permission
-    if !checkout_access(p_uid, p_gid, p_perm & 0o777, uid, gid, 0o2) {
+    if !checkout_access(p_uid, p_gid, p_perm & 0o777, uid, gid, ACCESS_W_OK) {
         return Err(DbfsError::AccessError);
     }
 
@@ -84,6 +84,10 @@ pub fn dbfs_common_unlink(
 
     // delete the kv pair
     p_bucket.delete(value.key())?;
+    // update size
+    let size = p_bucket.get_kv("size").unwrap();
+    let size = usize!(size.value());
+    p_bucket.put("size", (size - 1).to_be_bytes())?;
     // update ctime/mtime
     p_bucket.put("ctime", c_time.to_be_bytes())?;
     p_bucket.put("mtime", c_time.to_be_bytes())?;
@@ -91,7 +95,7 @@ pub fn dbfs_common_unlink(
     // update the link count
     let h_link = bucket.get_kv("hard_links").unwrap();
     let h_link = u32!(h_link.value());
-    error!("---------- h_link: {}",h_link);
+    error!("---------- hard_links: {}", h_link);
     if h_link == 1 {
         // delete the bucket
         tx.delete_bucket(ino.to_be_bytes())?;

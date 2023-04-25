@@ -1,9 +1,12 @@
+extern crate core;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
 use std::collections::btree_map::BTreeMap;
 
 fn main() {
-    print_an_address();
+    print_an_address().unwrap();
+
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -39,10 +42,10 @@ fn print_an_address() -> Result<()> {
     let j = serde_json::to_vec(&address)?;
 
     // Print, write to a file, or send to an HTTP server.
-    println!("{:?}", j);
+    println!("{j:?}");
 
     let address: Address = serde_json::from_slice(&j)?;
-    println!("{:?}", address);
+    println!("{address:?}");
 
     let mut a = A {
         map: BTreeMap::new(),
@@ -51,9 +54,32 @@ fn print_an_address() -> Result<()> {
 
     let data = Data::A(a);
     let j = serde_json::to_string(&data)?;
-    println!("{:?}", j);
+    println!("{j:?}");
     let data: Data = serde_json::from_str(&j)?;
-    println!("{:?}", data);
+    println!("{data:?}");
 
+
+
+    let x = u32::MAX; // 4字节
+
+    println!("{:08x}",1);
+    println!("{:?}",12u32.to_be_bytes());
+    println!("{:?}",10u32.to_be_bytes());
+    println!("{:?}",x.to_be_bytes());
+
+    let mut start_key = b"data".to_vec();
+    start_key.extend_from_slice(&12u32.to_be_bytes());
+
+    let slice = start_key.as_slice();
+
+    let mut n_start_key = b"data".to_vec();
+    n_start_key.extend_from_slice(&256u32.to_be_bytes());
+
+    let n_slice = n_start_key.as_slice();
+
+    println!("slice > n_slice:{}",slice > n_slice);
+
+    println!("{:?}",start_key.as_slice());
+    println!("{:?}",n_start_key.as_slice());
     Ok(())
 }

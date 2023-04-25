@@ -28,15 +28,15 @@ fn main() {
     // println!("{:#?}",file);
     println!("--------------");
     vfs_link::<FakeFSC>("/db/f1", "/db/f3").unwrap();
-    println!("{:#?}", f1_file);
+    println!("{f1_file:#?}");
     let root = vfs_open_file::<FakeFSC>("/db", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
     vfs_readdir(root.clone()).unwrap().for_each(|x| {
-        println!("{:#?}", x);
+        println!("{x:#?}");
     });
 
     vfs_unlink::<FakeFSC>("/db/f1").unwrap();
     vfs_readdir(root).unwrap().for_each(|x| {
-        println!("{:#?}", x);
+        println!("{x:#?}");
     });
 
     vfs_write_file::<FakeFSC>(f1_file, b"hello world", 0)

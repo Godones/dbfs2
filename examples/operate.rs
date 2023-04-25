@@ -59,7 +59,7 @@ fn main() {
     );
 
     let str = serde_json::to_string(&operate_set).unwrap();
-    println!("{}", str);
+    println!("{str}");
 
     execute_operate("test", operate_set);
     println!("buf:{:?}", core::str::from_utf8(&buf).unwrap());

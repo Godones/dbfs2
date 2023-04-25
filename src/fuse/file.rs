@@ -1,6 +1,10 @@
-use crate::common::{DbfsDirEntry, DbfsError, DbfsResult, FMODE_EXEC};
-use crate::file::{dbfs_common_open, dbfs_common_read, dbfs_common_readdir, dbfs_common_write};
+use crate::common::{DbfsDirEntry, DbfsError, DbfsResult, DbfsTimeSpec, FMODE_EXEC};
+use crate::file::{
+    dbfs_common_copy_file_range, dbfs_common_open, dbfs_common_read, dbfs_common_readdir,
+    dbfs_common_write,
+};
 use alloc::vec;
+use downcast::_std::time::SystemTime;
 use fuser::{ReplyDirectory, Request};
 use log::error;
 
@@ -38,8 +42,8 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
                 repl.ok();
                 return;
             }
+            offset = x.offset as i64 + 1;
         }
-        offset += res as i64;
     }
 }
 
@@ -91,4 +95,31 @@ pub fn dbfs_fuse_opendir(req: &Request<'_>, ino: u64, flags: i32) -> DbfsResult<
 
     // checkout the permission
     dbfs_common_open(ino as usize, req.uid(), req.gid(), access_mask as u16)
+}
+
+pub fn dbfs_fuse_copy_file_range(
+    req: &Request<'_>,
+    ino_in: u64,
+    offset_in: u64,
+    ino_out: u64,
+    offset_out: u64,
+    len: u64,
+) -> DbfsResult<usize> {
+    warn!(
+        "dbfs_fuse_copy_file_range(ino_in:{},offset_in:{},ino_out:{},offset_out:{},len:{})",
+        ino_in, offset_in, ino_out, offset_out, len
+    );
+    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    let uid = req.uid();
+    let gid = req.gid();
+    dbfs_common_copy_file_range(
+        uid,
+        gid,
+        ino_in as usize,
+        offset_in as usize,
+        ino_out as usize,
+        offset_out as usize,
+        len as usize,
+        time,
+    )
 }
