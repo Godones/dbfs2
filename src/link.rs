@@ -1,4 +1,4 @@
-use crate::common::{ACCESS_W_OK, DbfsError, DbfsPermission, DbfsResult};
+use crate::common::{DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, ACCESS_W_OK};
 use crate::inode::checkout_access;
 use crate::{clone_db, u16, u32, usize};
 use core::cmp::min;
@@ -6,12 +6,12 @@ use log::{error, warn};
 
 pub fn dbfs_common_readlink(ino: usize, buf: &mut [u8]) -> DbfsResult<usize> {
     let db = clone_db();
-    let tx = db.tx(false).unwrap();
-    let bucket = tx.get_bucket(ino.to_be_bytes()).unwrap();
+    let tx = db.tx(false)?;
+    let bucket = tx.get_bucket(ino.to_be_bytes())?;
     let value = bucket.get_kv("data").unwrap();
     let value = value.value();
     let len = min(value.len(), buf.len());
-    buf[..len].copy_from_slice(value);
+    buf[..len].copy_from_slice(&value[..len]);
     Ok(len)
 }
 
@@ -21,7 +21,7 @@ pub fn dbfs_common_unlink(
     dir: usize,
     name: &str,
     ino: Option<usize>,
-    c_time: usize,
+    c_time: DbfsTimeSpec,
 ) -> DbfsResult<()> {
     let db = clone_db();
     let tx = db.tx(true)?;

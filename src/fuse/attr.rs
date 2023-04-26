@@ -9,12 +9,12 @@ use downcast::_std::time::SystemTime;
 use fuser::{FileAttr, Request, TimeOrNow};
 use log::warn;
 
-pub fn dbfs_fuse_getattr(ino: u64) -> Result<FileAttr, ()> {
+pub fn dbfs_fuse_getattr(ino: u64) -> DbfsResult<FileAttr> {
     warn!("dbfs_fuse_getattr(ino:{})", ino);
     dbfs_common_attr(ino as usize).map(|x| x.into())
 }
 
-pub fn dbfs_fuse_statfs() -> Result<DbfsFsStat, ()> {
+pub fn dbfs_fuse_statfs() -> DbfsResult<DbfsFsStat> {
     warn!("dbfs_fuse_statfs)");
     dbfs_common_statfs(None, None, None)
 }
@@ -32,8 +32,11 @@ pub fn dbfs_fuse_setxattr(
     _flags: i32,
     _position: u32,
 ) -> DbfsResult<()> {
-    warn!("dbfs_fuse_setxattr(ino:{},name:{:?},value:{:?})", ino, name,value);
-    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    warn!(
+        "dbfs_fuse_setxattr(ino:{},name:{:?},value:{:?})",
+        ino, name, value
+    );
+    let time = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_setxattr(req.uid(), req.gid(), ino as usize, name, value, time)
 }
 
@@ -54,7 +57,7 @@ pub fn dbfs_fuse_listxattr(req: &Request<'_>, ino: u64, buf: &mut [u8]) -> DbfsR
 
 pub fn dbfs_fuse_removexattr(req: &Request<'_>, ino: u64, name: &str) -> DbfsResult<()> {
     warn!("dbfs_fuse_removexattr(ino:{},name:{:?})", ino, name);
-    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    let time = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_removexattr(req.uid(), req.gid(), ino as usize, name, time)
 }
 
@@ -63,7 +66,7 @@ pub fn dbfs_fuse_removexattr(req: &Request<'_>, ino: u64, name: &str) -> DbfsRes
 /// fi will always be NULL if the file is not currently open, but may also be NULL if the file is open.
 pub fn dbfs_fuse_chmod(req: &Request<'_>, ino: u64, mode: u32) -> DbfsResult<DbfsAttr> {
     warn!("dbfs_fuse_chmod(ino:{},mode:{})", ino, mode);
-    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    let time = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_chmod(req.uid(), req.gid(), ino as usize, mode as u16, time)
 }
 
@@ -75,7 +78,7 @@ pub fn dbfs_fuse_chown(
     gid: Option<u32>,
 ) -> DbfsResult<DbfsAttr> {
     warn!("dbfs_fuse_chown(ino:{},uid:{:?},gid:{:?})", ino, uid, gid);
-    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    let time = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_chown(req.uid(), req.gid(), ino as usize, uid, gid, time)
 }
 
@@ -90,14 +93,18 @@ pub fn dbfs_fuse_utimens(
         ino, atime, mtime
     );
     let atime = atime.map(|t| match t {
-        TimeOrNow::Now => DbfsTimeSpec::from(SystemTime::now()).into(),
-        TimeOrNow::SpecificTime(t) => DbfsTimeSpec::from(t).into(),
+        TimeOrNow::Now => DbfsTimeSpec::from(SystemTime::now()),
+        TimeOrNow::SpecificTime(t) => DbfsTimeSpec::from(t),
     });
     let mtime = mtime.map(|t| match t {
-        TimeOrNow::Now => DbfsTimeSpec::from(SystemTime::now()).into(),
-        TimeOrNow::SpecificTime(t) => DbfsTimeSpec::from(t).into(),
+        TimeOrNow::Now => DbfsTimeSpec::from(SystemTime::now()),
+        TimeOrNow::SpecificTime(t) => DbfsTimeSpec::from(t),
     });
 
-    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
+    let ctime = DbfsTimeSpec::from(SystemTime::now());
+    warn!(
+        "dbfs_fuse_utimens(ino:{},atime:{:?},mtime:{:?},ctime:{:?})",
+        ino, atime, mtime, ctime
+    );
     dbfs_common_utimens(req.uid(), req.gid(), ino as usize, atime, mtime, ctime)
 }

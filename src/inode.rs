@@ -1,20 +1,23 @@
 use crate::attr::clear_suid_sgid;
 use crate::file::{DBFS_DIR_FILE_OPS, DBFS_FILE_FILE_OPS, DBFS_SYMLINK_FILE_OPS};
-use crate::{clone_db, u16, u32, u64, usize};
+use crate::{clone_db, dbfs_time_spec, u16, u32, u64, usize};
 use alloc::borrow::ToOwned;
-use alloc::{format, vec};
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use alloc::{format, vec};
 use core::cmp::min;
 use core::sync::atomic::AtomicUsize;
-use log::{debug};
+use log::{debug, error};
 use rvfs::dentry::{DirEntry, LookUpData};
 use rvfs::file::{FileMode, FileOps};
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode, InodeOps};
 use rvfs::{ddebug, warn, StrResult};
 
-use crate::common::{DbfsAttr, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec, ACCESS_W_OK, RENAME_EXCHANGE, generate_data_key};
+use crate::common::{
+    generate_data_key, DbfsAttr, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec,
+    ACCESS_W_OK, RENAME_EXCHANGE,
+};
 use crate::link::{dbfs_common_readlink, dbfs_common_unlink};
 
 pub static DBFS_INODE_NUMBER: AtomicUsize = AtomicUsize::new(1);
@@ -71,7 +74,8 @@ fn dbfs_link(
     let name = new_dentry.access_inner().d_name.clone();
     let new_ino = dir.number;
 
-    let _ = dbfs_common_link(0, 0, ino, new_ino, &name, 0).map_err(|_| "DbfsError::NotFound")?;
+    let _ = dbfs_common_link(0, 0, ino, new_ino, &name, DbfsTimeSpec::default())
+        .map_err(|_| "DbfsError::NotFound")?;
 
     // update old inode data in memory
     // update hard_links
@@ -88,7 +92,7 @@ pub fn dbfs_common_link(
     ino: usize,
     new_ino: usize,
     name: &str,
-    ctime: usize,
+    ctime: DbfsTimeSpec,
 ) -> DbfsResult<DbfsAttr> {
     // checkout permission
     let attr = dbfs_common_attr(new_ino).map_err(|_| DbfsError::NotFound)?;
@@ -107,6 +111,16 @@ pub fn dbfs_common_link(
     // update new inode data in db
     let tx = db.tx(true)?;
     let bucket = tx.get_bucket(new_ino.to_be_bytes())?;
+
+    // check if the new dentry exists
+    // checkout whether the file is exist
+    let value = bucket.kv_pairs().find(|kv| {
+        kv.key().starts_with("data:".as_bytes()) && kv.value().starts_with(name.as_bytes())
+    });
+    if value.is_some() {
+        return Err(DbfsError::FileExists);
+    }
+
     let next_number = bucket.get_kv("next_number".to_string()).unwrap();
     let next_number = u32!(next_number.value());
     bucket.put("next_number", (next_number + 1).to_be_bytes())?;
@@ -146,8 +160,15 @@ fn dbfs_unlink(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
     let name = &dentry.access_inner().d_name;
 
     warn!("dbfs_unlink: dir.number={}, name={}", number, name);
-    dbfs_common_unlink(0, 0, number, name, Some(inode.number), 0)
-        .map_err(|_| "dbfs_common_unlink failed")?;
+    dbfs_common_unlink(
+        0,
+        0,
+        number,
+        name,
+        Some(inode.number),
+        DbfsTimeSpec::default(),
+    )
+    .map_err(|_| "dbfs_common_unlink failed")?;
     let mut inner = inode.access_inner();
     inner.hard_links -= 1;
     Ok(())
@@ -186,15 +207,15 @@ fn dbfs_lookup(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
     Ok(())
 }
 
-pub fn dbfs_common_lookup(dir: usize, name: &str) -> Result<DbfsAttr, ()> {
+pub fn dbfs_common_lookup(dir: usize, name: &str) -> DbfsResult<DbfsAttr> {
     let db = clone_db();
-    let tx = db.tx(false).unwrap();
-    let bucket = tx.get_bucket(dir.to_be_bytes()).unwrap();
+    let tx = db.tx(false)?;
+    let bucket = tx.get_bucket(dir.to_be_bytes())?;
     let value = bucket.kv_pairs().find(|kv| {
         kv.key().starts_with("data".as_bytes()) && kv.value().starts_with(name.as_bytes())
     });
     if value.is_none() {
-        return Err(());
+        return Err(DbfsError::NotFound);
     }
     let value = value.unwrap();
     let value = value.value();
@@ -204,10 +225,14 @@ pub fn dbfs_common_lookup(dir: usize, name: &str) -> Result<DbfsAttr, ()> {
     dbfs_common_attr(number)
 }
 
-pub fn dbfs_common_attr(number: usize) -> Result<DbfsAttr, ()> {
+pub fn dbfs_common_attr(number: usize) -> DbfsResult<DbfsAttr> {
     let db = clone_db();
-    let tx = db.tx(false).unwrap();
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let tx = db.tx(false)?;
+    let bucket = tx.get_bucket(number.to_be_bytes());
+    if let Err(jammdb::Error::BucketMissing) = bucket {
+        return Ok(DbfsAttr::default());
+    }
+    let bucket = bucket.unwrap();
     let size = bucket.get_kv("size").unwrap();
     let size = usize!(size.value());
 
@@ -218,7 +243,6 @@ pub fn dbfs_common_attr(number: usize) -> Result<DbfsAttr, ()> {
 
     let n_links = bucket.get_kv("hard_links").unwrap();
     let n_links = u32!(n_links.value());
-
     let uid = bucket.get_kv("uid").unwrap();
     let uid = u32!(uid.value());
     let gid = bucket.get_kv("gid").unwrap();
@@ -229,11 +253,23 @@ pub fn dbfs_common_attr(number: usize) -> Result<DbfsAttr, ()> {
     let blocks = (size + blksize as usize - 1) / blksize as usize;
 
     let atime = bucket.get_kv("atime").unwrap();
-    let atime = usize!(atime.value());
+    let atime = dbfs_time_spec!(atime.value());
     let mtime = bucket.get_kv("mtime").unwrap();
-    let mtime = usize!(mtime.value());
+    let mtime = dbfs_time_spec!(mtime.value());
     let ctime = bucket.get_kv("ctime").unwrap();
-    let ctime = usize!(ctime.value());
+    let ctime = dbfs_time_spec!(ctime.value());
+
+    let rdev = if file_type == DbfsFileType::CharDevice || file_type == DbfsFileType::BlockDevice {
+        let dev = bucket.get_kv("dev").unwrap();
+        u32!(dev.value())
+    } else {
+        0
+    };
+
+    error!(
+        "[[dbfs_common_attr]]: number={}, size={}, mode={:?}, n_links={}, rdev={}",
+        number, size, mode, n_links, rdev
+    );
 
     // fill dbfs_attr
     let dbfs_attr = DbfsAttr {
@@ -249,7 +285,7 @@ pub fn dbfs_common_attr(number: usize) -> Result<DbfsAttr, ()> {
         nlink: n_links,
         uid,
         gid,
-        rdev: 0,
+        rdev,
         blksize,
         padding: 0,
         flags: 0,
@@ -260,7 +296,7 @@ pub fn dbfs_common_attr(number: usize) -> Result<DbfsAttr, ()> {
 fn dbfs_rmdir(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
     let number = dir.number;
     let name = &dentry.access_inner().d_name;
-    dbfs_common_rmdir(0, 0, number, name, 0).map_err(|x| {
+    dbfs_common_rmdir(0, 0, number, name, DbfsTimeSpec::default()).map_err(|x| {
         warn!("dbfs_common_rmdir failed: {:?}", x);
         "dbfs_common_rmdir failed"
     })?;
@@ -400,9 +436,7 @@ fn dbfs_rename(
             // update size
             let size = new_bucket.get_kv("size").unwrap();
             let size = usize!(size.value());
-            new_bucket
-                .put("size", (size + 1).to_string())
-                .unwrap();
+            new_bucket.put("size", (size + 1).to_string()).unwrap();
 
             old_dir.access_inner().file_size -= 1;
             new_dir.access_inner().file_size += 1;
@@ -418,7 +452,7 @@ fn dbfs_truncate(inode: Arc<Inode>) -> StrResult<()> {
     let number = inode.number;
     let inode_inner = inode.access_inner();
     let f_size = inode_inner.file_size;
-    let _res = dbfs_common_truncate(0, 0, number, 0, f_size)
+    let _res = dbfs_common_truncate(0, 0, number, DbfsTimeSpec::default(), f_size)
         .map_err(|_| "dbfs_truncate: truncate failed")?;
     Ok(())
 }
@@ -446,8 +480,17 @@ fn dbfs_rvfs_create(
     let name = dentry.access_inner().d_name.to_owned();
     let permission = permission_from_mode(mode, inode_mode);
 
-    let attr = dbfs_common_create(dir_number, &name, 0, 0, 0, permission, target_path)
-        .map_err(|_| "dbfs_rvfs_create: dbfs_common_create failed")?;
+    let attr = dbfs_common_create(
+        dir_number,
+        &name,
+        0,
+        0,
+        DbfsTimeSpec::default(),
+        permission,
+        target_path,
+        None,
+    )
+    .map_err(|_| "dbfs_rvfs_create: dbfs_common_create failed")?;
 
     let n_inode = create_tmp_inode_from_sb_blk(
         dir.super_blk.upgrade().unwrap().clone(),
@@ -510,15 +553,15 @@ fn creation_gid(p_gid: u32, p_mode: DbfsPermission, gid: u32) -> u32 {
     gid
 }
 
-///
 pub fn dbfs_common_create(
     dir: usize,
     name: &str,
     uid: u32,
     gid: u32,
-    c_time: usize,
+    c_time: DbfsTimeSpec,
     permission: DbfsPermission,
     target_path: Option<&str>,
+    dev: Option<u32>,
 ) -> DbfsResult<DbfsAttr> {
     ddebug!("dbfs_common_create");
     let new_number = DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
@@ -540,6 +583,14 @@ pub fn dbfs_common_create(
         return Err(DbfsError::AccessError);
     }
 
+    // checkout whether the file is exist
+    let value = parent.kv_pairs().find(|kv| {
+        kv.key().starts_with("data:".as_bytes()) && kv.value().starts_with(name.as_bytes())
+    });
+    if value.is_some() {
+        return Err(DbfsError::FileExists);
+    }
+
     let size = parent.get_kv("size").unwrap();
     let size = usize!(size.value());
     // update the size of the dir
@@ -548,7 +599,9 @@ pub fn dbfs_common_create(
     let next_number = parent.get_kv("next_number").unwrap();
     let next_number = u32!(next_number.value());
     // +1
-    parent.put("next_number", (next_number + 1).to_be_bytes()).unwrap();
+    parent
+        .put("next_number", (next_number + 1).to_be_bytes())
+        .unwrap();
 
     let key = generate_data_key(next_number);
     let value = format!("{}:{}", name, new_number);
@@ -579,20 +632,26 @@ pub fn dbfs_common_create(
     let gid = creation_gid(p_gid, permission, gid);
 
     // create a new inode
-    warn!("dbfs_common_create: create a new inode {}, it's number is {}", new_number,next_number);
+
     let new_inode = tx.create_bucket(new_number.to_be_bytes())?;
 
     // set the mode of inode
     new_inode.put("mode", mode.bits().to_be_bytes())?;
     // set the size of inode to 0
 
-    let (hard_link, file_size) = if permission.contains(DbfsPermission::S_IFDIR) {
-        (2u32, 2usize)
+    let (hard_link, file_size, dev) = if permission.contains(DbfsPermission::S_IFSOCK)
+        || permission.contains(DbfsPermission::S_IFCHR)
+        || permission.contains(DbfsPermission::S_IFBLK)
+        || permission.contains(DbfsPermission::S_IFIFO)
+    {
+        (1u32, 0usize, dev)
+    } else if permission.contains(DbfsPermission::S_IFDIR) {
+        (2, 2, None)
     } else if permission.contains(DbfsPermission::S_IFLNK) {
         assert!(target_path.is_some());
-        (1u32, target_path.as_ref().unwrap().len())
+        (1, target_path.as_ref().unwrap().len(), None)
     } else {
-        (1u32, 0usize)
+        (1, 0, None)
     };
     if permission.contains(DbfsPermission::S_IFDIR) {
         new_inode.put("next_number", 2u32.to_be_bytes())?;
@@ -602,8 +661,7 @@ pub fn dbfs_common_create(
         new_inode.put(generate_data_key(1), dotdot_value)?;
     }
     new_inode.put("size", file_size.to_be_bytes())?;
-    new_inode
-        .put("hard_links", hard_link.to_be_bytes())?;
+    new_inode.put("hard_links", hard_link.to_be_bytes())?;
     new_inode.put("uid", uid.to_be_bytes())?;
     new_inode.put("gid", gid.to_be_bytes())?;
     // set time
@@ -615,7 +673,17 @@ pub fn dbfs_common_create(
     if permission.contains(DbfsPermission::S_IFLNK) {
         new_inode.put("data", target_path.unwrap())?;
     }
+
+    if dev.is_some() {
+        new_inode.put("dev", dev.as_ref().unwrap().to_be_bytes())?;
+    }
+
     tx.commit()?;
+
+    warn!(
+        "dbfs_common_create: create a new inode {}, it's number is {}, hard_links:{}",
+        new_number, next_number, hard_link
+    );
 
     let dbfs_attr = DbfsAttr {
         ino: new_number,
@@ -624,13 +692,13 @@ pub fn dbfs_common_create(
         atime: DbfsTimeSpec::from(c_time),
         mtime: DbfsTimeSpec::from(c_time),
         ctime: DbfsTimeSpec::from(c_time),
-        crtime: DbfsTimeSpec::from(0),
+        crtime: DbfsTimeSpec::default(),
         kind: DbfsFileType::from(permission),
         perm: mode.bits(),
         nlink: hard_link,
         uid,
         gid,
-        rdev: 0,
+        rdev: dev.unwrap_or(0),
         blksize: 512,
         padding: 0,
         flags: 0,
@@ -658,7 +726,7 @@ pub fn dbfs_common_truncate(
     r_uid: u32,
     r_gid: u32,
     ino: usize,
-    ctime: usize,
+    ctime: DbfsTimeSpec,
     f_size: usize,
 ) -> DbfsResult<DbfsAttr> {
     warn!("dbfs_truncate: set size to {}", f_size);
@@ -730,8 +798,8 @@ pub fn dbfs_common_truncate(
     bucket.put("mode", new_perm.bits().to_be_bytes())?;
 
     attr.size = f_size;
-    attr.ctime = ctime.into();
-    attr.mtime = ctime.into();
+    attr.ctime = ctime;
+    attr.mtime = ctime;
     attr.perm = new_perm.bits();
 
     tx.commit()?;
@@ -743,7 +811,7 @@ pub fn dbfs_common_rmdir(
     r_gid: u32,
     p_ino: usize,
     name: &str,
-    c_time: usize,
+    c_time: DbfsTimeSpec,
 ) -> DbfsResult<()> {
     let db = clone_db();
     let tx = db.tx(true)?;
@@ -807,7 +875,7 @@ pub fn dbfs_common_fallocate(
     offset: usize,
     size: usize,
     mode: u32,
-    ctime: usize,
+    ctime: DbfsTimeSpec,
 ) -> DbfsResult<()> {
     let db = clone_db();
     let tx = db.tx(true)?;
@@ -867,10 +935,10 @@ pub fn dbfs_common_rename(
     new_dir: usize,
     new_name: &str,
     flags: u32,
-    ctime: usize,
+    ctime: DbfsTimeSpec,
 ) -> DbfsResult<()> {
     let db = clone_db();
-    let (old_key,old_number,old_uid,old_gid,old_perm)={
+    let (old_key, old_number, old_uid, old_gid, old_perm) = {
         let tx = db.tx(false)?;
         let old_dir_bucket = tx.get_bucket(old_dir.to_be_bytes())?;
         let value = old_dir_bucket.kv_pairs().find(|kv| {
@@ -892,7 +960,8 @@ pub fn dbfs_common_rename(
             old_dir_perm & 0o777,
             r_uid,
             r_gid,
-            ACCESS_W_OK) {
+            ACCESS_W_OK,
+        ) {
             return Err(DbfsError::AccessError);
         }
 
@@ -910,7 +979,8 @@ pub fn dbfs_common_rename(
         if old_dir_perm.contains(DbfsPermission::S_ISVTX)
             && r_uid != 0
             && r_uid != old_dir_uid
-            && r_uid != old_uid {
+            && r_uid != old_uid
+        {
             return Err(DbfsError::AccessError);
         }
 
@@ -919,9 +989,9 @@ pub fn dbfs_common_rename(
         let old_perm = bucket.get_kv("mode").unwrap();
         let old_perm = u16!(old_perm.value());
 
-        (value.key().to_owned(),number,old_uid,old_gid,old_perm)
+        (value.key().to_owned(), number, old_uid, old_gid, old_perm)
     };
-    let (new_key,new_number,new_perm,new_size) = {
+    let (new_key, new_number, new_perm, new_size) = {
         let tx = db.tx(false)?;
         let new_dir_bucket = tx.get_bucket(new_dir.to_be_bytes())?;
         let new_dir_uid = new_dir_bucket.get_kv("uid").unwrap();
@@ -936,7 +1006,8 @@ pub fn dbfs_common_rename(
             new_dir_perm & 0o777,
             r_uid,
             r_gid,
-            ACCESS_W_OK) {
+            ACCESS_W_OK,
+        ) {
             return Err(DbfsError::AccessError);
         }
         // "Sticky bit" handling in new_parent
@@ -947,7 +1018,7 @@ pub fn dbfs_common_rename(
         let value = new_dir_bucket.kv_pairs().find(|kv| {
             kv.key().starts_with("data".as_bytes()) && kv.value().starts_with(old_name.as_bytes())
         });
-        if value.is_some()&& new_dir_mode.contains(DbfsPermission::S_ISVTX) {
+        if value.is_some() && new_dir_mode.contains(DbfsPermission::S_ISVTX) {
             let value = value.unwrap();
             let v_value = value.value();
             let str = core::str::from_utf8(v_value).unwrap();
@@ -956,9 +1027,7 @@ pub fn dbfs_common_rename(
             let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
             let new_uid = bucket.get_kv("uid").unwrap();
             let new_uid = u32!(new_uid.value());
-            if r_uid != 0
-                && r_uid != new_dir_uid
-                && r_uid != new_uid {
+            if r_uid != 0 && r_uid != new_dir_uid && r_uid != new_uid {
                 return Err(DbfsError::AccessError);
             }
             let new_perm = bucket.get_kv("mode").unwrap();
@@ -966,15 +1035,14 @@ pub fn dbfs_common_rename(
             let new_size = bucket.get_kv("size").unwrap();
             let new_size = usize!(new_size.value());
 
-            (value.key().to_owned(),Some(number),new_perm,new_size)
-        }else {
-            (vec![],None,0,0)
+            (value.key().to_owned(), Some(number), new_perm, new_size)
+        } else {
+            (vec![], None, 0, 0)
         }
     };
 
-
     // Atomic exchange
-    if flags & RENAME_EXCHANGE !=0 {
+    if flags & RENAME_EXCHANGE != 0 {
         // we need to check if the new name is already used
         if new_number.is_none() {
             return Err(DbfsError::NotFound);
@@ -985,21 +1053,21 @@ pub fn dbfs_common_rename(
         let new_dir_bucket = tx.get_bucket(new_dir.to_be_bytes())?;
 
         let value = format!("{}:{}", old_name, old_number);
-        new_dir_bucket.put(new_key,value)?; // new_dir insert old_name and number using new_key
+        new_dir_bucket.put(new_key, value)?; // new_dir insert old_name and number using new_key
 
         let value = format!("{}:{}", new_name, new_number);
-        old_dir_bucket.put(old_key,value)?; // old_dir insert new_name and number using old_key
+        old_dir_bucket.put(old_key, value)?; // old_dir insert new_name and number using old_key
 
         // update time
-        old_dir_bucket.put("ctime",ctime.to_be_bytes())?;
-        old_dir_bucket.put("mtime",ctime.to_be_bytes())?;
-        new_dir_bucket.put("ctime",ctime.to_be_bytes())?;
-        new_dir_bucket.put("mtime",ctime.to_be_bytes())?;
+        old_dir_bucket.put("ctime", ctime.to_be_bytes())?;
+        old_dir_bucket.put("mtime", ctime.to_be_bytes())?;
+        new_dir_bucket.put("ctime", ctime.to_be_bytes())?;
+        new_dir_bucket.put("mtime", ctime.to_be_bytes())?;
 
         let old_bucket = tx.get_bucket(old_number.to_be_bytes())?;
-        old_bucket.put("ctime",ctime.to_be_bytes())?;
+        old_bucket.put("ctime", ctime.to_be_bytes())?;
         let new_bucket = tx.get_bucket(new_number.to_be_bytes())?;
-        new_bucket.put("ctime",ctime.to_be_bytes())?;
+        new_bucket.put("ctime", ctime.to_be_bytes())?;
 
         // When the old or new name is a dir, we need to update the parent of the children
         // we know that the .. file is the second data
@@ -1007,12 +1075,12 @@ pub fn dbfs_common_rename(
         let old_mode = DbfsPermission::from_bits_truncate(old_perm);
         if old_mode.contains(DbfsPermission::S_IFDIR) {
             let value = format!("..:{}", new_dir);
-            old_bucket.put(generate_data_key(1),value)?;
+            old_bucket.put(generate_data_key(1), value)?;
         }
         let new_mode = DbfsPermission::from_bits_truncate(new_perm);
         if new_mode.contains(DbfsPermission::S_IFDIR) {
             let value = format!("..:{}", old_dir);
-            new_bucket.put(generate_data_key(1),value)?;
+            new_bucket.put(generate_data_key(1), value)?;
         }
 
         tx.commit()?;
@@ -1023,7 +1091,7 @@ pub fn dbfs_common_rename(
     // Only overwrite an existing directory if it's empty
     if new_number.is_some() {
         let perm = DbfsPermission::from_bits_truncate(new_perm);
-        if perm.contains(DbfsPermission::S_IFDIR) && new_size > 2{
+        if perm.contains(DbfsPermission::S_IFDIR) && new_size > 2 {
             return Err(DbfsError::NotEmpty);
         }
     }
@@ -1040,7 +1108,7 @@ pub fn dbfs_common_rename(
         r_uid,
         r_gid,
         ACCESS_W_OK
-    ){
+    ) {
         return Err(DbfsError::AccessError);
     }
 
@@ -1057,7 +1125,7 @@ pub fn dbfs_common_rename(
         // 2.1 update the size
         // new_dir_bucket.put("size",(new_dir_size - 1).to_be_bytes())?;
 
-        new_dir_size -=1;
+        new_dir_size -= 1;
 
         // 2.2 update the hardlink count
         let new_perm = DbfsPermission::from_bits_truncate(new_perm);
@@ -1087,46 +1155,43 @@ pub fn dbfs_common_rename(
     // 3.1 update the size
     let size = old_dir_bucket.get_kv("size").unwrap();
     let size = usize!(size.value());
-    old_dir_bucket.put("size",(size - 1).to_be_bytes())?;
+    old_dir_bucket.put("size", (size - 1).to_be_bytes())?;
 
     // debug!("we insert the old_number to new_dir :{:?}",old_number);
     // 4. insert the old_key to new_dir
     let value = format!("{}:{}", new_name, old_number);
-    if new_number.is_some(){
-        new_dir_bucket.put(new_key,value)?;
-    }else {
+    if new_number.is_some() {
+        new_dir_bucket.put(new_key, value)?;
+    } else {
         let next_number = new_dir_bucket.get_kv("next_number").unwrap();
         let next_number = u32!(next_number.value());
         let key = generate_data_key(next_number);
-        new_dir_bucket.put(key,value)?;
-        new_dir_bucket.put("next_number",(next_number + 1).to_be_bytes())?;
+        new_dir_bucket.put(key, value)?;
+        new_dir_bucket.put("next_number", (next_number + 1).to_be_bytes())?;
     }
 
     // 4.1 update the size
-    new_dir_bucket.put("size",(new_dir_size + 1).to_be_bytes())?;
+    new_dir_bucket.put("size", (new_dir_size + 1).to_be_bytes())?;
 
     // 5.update ctime/mtime for old_dir and new_dir
-    old_dir_bucket.put("ctime",ctime.to_be_bytes())?;
-    old_dir_bucket.put("mtime",ctime.to_be_bytes())?;
-    new_dir_bucket.put("ctime",ctime.to_be_bytes())?;
-    new_dir_bucket.put("mtime",ctime.to_be_bytes())?;
+    old_dir_bucket.put("ctime", ctime.to_be_bytes())?;
+    old_dir_bucket.put("mtime", ctime.to_be_bytes())?;
+    new_dir_bucket.put("ctime", ctime.to_be_bytes())?;
+    new_dir_bucket.put("mtime", ctime.to_be_bytes())?;
 
     // 6. update ctime for old_bucket
     let old_bucket = tx.get_bucket(old_number.to_be_bytes())?;
-    old_bucket.put("ctime",ctime.to_be_bytes())?;
+    old_bucket.put("ctime", ctime.to_be_bytes())?;
 
     // 7. update parent of old_bucket
     let old_mode = DbfsPermission::from_bits_truncate(old_perm);
-    if old_mode.contains(DbfsPermission::S_IFDIR){
+    if old_mode.contains(DbfsPermission::S_IFDIR) {
         let value = format!("..:{}", new_dir);
-        old_bucket.put(generate_data_key(1),value)?;
+        old_bucket.put(generate_data_key(1), value)?;
     }
     tx.commit()?;
     Ok(())
 }
-
-
-
 
 fn inode_ops_from_inode_mode(inode_mode: InodeMode) -> InodeOps {
     match inode_mode {

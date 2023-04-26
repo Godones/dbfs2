@@ -1,7 +1,11 @@
 #![allow(unused)]
+use crate::{u32, u64};
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::bitflags;
+use core::fmt::{Display, Formatter};
+use core::ops::Deref;
 use onlyerror::Error;
 
 pub const FMODE_EXEC: i32 = 0x20;
@@ -12,7 +16,7 @@ pub const ACCESS_F_OK: u16 = 0;
 pub const ACCESS_W_OK: u16 = 2;
 pub const ACCESS_X_OK: u16 = 1;
 
-pub const RENAME_EXCHANGE:u32 = 0x2;
+pub const RENAME_EXCHANGE: u32 = 0x2;
 
 #[derive(Debug, Default, Clone)]
 pub struct DbfsDirEntry {
@@ -38,6 +42,10 @@ pub enum DbfsError {
     NoSpace = 28,
     #[error("DbfsError::RangeError")]
     RangeError = 34,
+    #[error("DbfsError::NameTooLong")]
+    NameTooLong = 36,
+    #[error("DbfsError::NoSys")]
+    NoSys = 38,
     #[error("DbfsError::NotEmpty")]
     NotEmpty = 39,
     #[error("DbfsError::Io")]
@@ -69,11 +77,12 @@ impl From<jammdb::Error> for DbfsError {
 
 bitflags! {
     pub struct DbfsPermission: u16 {
-        const S_IFSOCK = 0o140000;
-        const S_IFLNK = 0o120000;
-        const S_IFREG = 0o100000;
-        const S_IFBLK = 0o060000;
-        const S_IFDIR = 0o040000;
+        const S_IFMT = 0o17_0000;
+        const S_IFSOCK = 0o14_0000;
+        const S_IFLNK = 0o12_0000;
+        const S_IFREG = 0o10_0000;
+        const S_IFBLK = 0o06_0000;
+        const S_IFDIR = 0o04_0000;
         const S_IFCHR = 0o020000;
         const S_IFIFO = 0o010000;
         const S_ISUID = 0o004000;
@@ -94,7 +103,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum DbfsFileType {
     NamedPipe,
     /// Character device (S_IFCHR)
@@ -168,23 +177,46 @@ pub struct DbfsTimeSpec {
     pub nsec: u32,
 }
 
-impl Into<usize> for DbfsTimeSpec {
-    fn into(self) -> usize {
-        // transform into ms
-        (self.sec * 1000 + (self.nsec / 1000) as u64) as usize
+impl Display for DbfsTimeSpec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}.{}", self.sec, self.nsec)
     }
 }
 
-impl From<usize> for DbfsTimeSpec {
-    fn from(value: usize) -> Self {
-        let sec = value / 1000;
-        let nsec = (value % 1000) * 1000;
-        Self {
-            sec: sec as u64,
-            nsec: nsec as u32,
-        }
+impl DbfsTimeSpec {
+    pub fn to_be_bytes(&self) -> Vec<u8> {
+        let mut buf = vec![];
+        buf.extend_from_slice(self.sec.to_be_bytes().as_ref());
+        buf.extend_from_slice(self.nsec.to_be_bytes().as_ref());
+        buf
     }
 }
+
+impl Into<Vec<u8>> for DbfsTimeSpec {
+    fn into(self) -> Vec<u8> {
+        let mut buf = vec![];
+        buf.extend_from_slice(self.sec.to_be_bytes().as_ref());
+        buf.extend_from_slice(self.nsec.to_be_bytes().as_ref());
+        buf
+    }
+}
+
+impl From<Vec<u8>> for DbfsTimeSpec {
+    fn from(value: Vec<u8>) -> Self {
+        let sec = u64!(value[0..8]);
+        let nsec = u32!(value[8..12]);
+        Self { sec, nsec }
+    }
+}
+
+impl From<&[u8]> for DbfsTimeSpec {
+    fn from(value: &[u8]) -> Self {
+        let sec = u64!(value[0..8]);
+        let nsec = u32!(value[8..12]);
+        Self { sec, nsec }
+    }
+}
+
 impl DbfsTimeSpec {
     #[allow(unused)]
     pub fn new(sec: u64, nsec: u32) -> Self {
@@ -192,7 +224,7 @@ impl DbfsTimeSpec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DbfsAttr {
     /// Inode number
     pub ino: usize,
@@ -245,15 +277,11 @@ pub struct DbfsFsStat {
     pub name: [u8; 32],
 }
 
-
-pub fn generate_data_key(num:u32)->Vec<u8>{
+pub fn generate_data_key(num: u32) -> Vec<u8> {
     let mut datakey = b"data:".to_vec();
     datakey.extend_from_slice(&num.to_be_bytes());
     datakey
 }
-
-
-
 
 #[cfg(feature = "fuse")]
 mod impl_fuse {

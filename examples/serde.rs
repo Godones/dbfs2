@@ -6,7 +6,6 @@ use std::collections::btree_map::BTreeMap;
 
 fn main() {
     print_an_address().unwrap();
-
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -58,14 +57,12 @@ fn print_an_address() -> Result<()> {
     let data: Data = serde_json::from_str(&j)?;
     println!("{data:?}");
 
-
-
     let x = u32::MAX; // 4字节
 
-    println!("{:08x}",1);
-    println!("{:?}",12u32.to_be_bytes());
-    println!("{:?}",10u32.to_be_bytes());
-    println!("{:?}",x.to_be_bytes());
+    println!("{:08x}", 1);
+    println!("{:?}", 12u32.to_be_bytes());
+    println!("{:?}", 10u32.to_be_bytes());
+    println!("{:?}", x.to_be_bytes());
 
     let mut start_key = b"data".to_vec();
     start_key.extend_from_slice(&12u32.to_be_bytes());
@@ -77,9 +74,9 @@ fn print_an_address() -> Result<()> {
 
     let n_slice = n_start_key.as_slice();
 
-    println!("slice > n_slice:{}",slice > n_slice);
+    println!("slice > n_slice:{}", slice > n_slice);
 
-    println!("{:?}",start_key.as_slice());
-    println!("{:?}",n_start_key.as_slice());
+    println!("{:?}", start_key.as_slice());
+    println!("{:?}", n_start_key.as_slice());
     Ok(())
 }

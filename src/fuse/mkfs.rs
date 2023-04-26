@@ -222,7 +222,7 @@ pub fn init_dbfs_fuse<T: AsRef<Path>>(path: T, size: u64) {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
     let time = DbfsTimeSpec::from(SystemTime::now());
-    dbfs_common_root_inode(uid, gid, time.into()).unwrap();
+    dbfs_common_root_inode(uid, gid, time).unwrap();
 }
 
 pub fn init_db(db: &DB, size: u64) {

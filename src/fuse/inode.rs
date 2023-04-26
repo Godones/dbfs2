@@ -1,4 +1,5 @@
-use crate::common::{DbfsAttr, DbfsPermission, DbfsResult, DbfsTimeSpec};
+use crate::common::{DbfsAttr, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, MAX_PATH_LEN};
+use downcast::_std::println;
 use downcast::_std::time::SystemTime;
 use fuser::{FileAttr, Request};
 
@@ -9,9 +10,13 @@ use crate::inode::{
     dbfs_common_rmdir, dbfs_common_truncate,
 };
 
-pub fn dbfs_fuse_lookup(parent: u64, name: &str) -> Result<FileAttr, ()> {
+pub fn dbfs_fuse_lookup(parent: u64, name: &str) -> DbfsResult<FileAttr> {
     warn!("dbfs_fuse_lookup(parent:{},name:{})", parent, name);
-    dbfs_common_lookup(parent as usize, name).map(|x| x.into())
+    if name.len() > MAX_PATH_LEN {
+        return Err(DbfsError::NameTooLong);
+    }
+    let res = dbfs_common_lookup(parent as usize, name);
+    res.map(|attr| attr.into())
 }
 
 pub fn dbfs_fuse_create(
@@ -20,12 +25,11 @@ pub fn dbfs_fuse_create(
     name: &str,
     mode: u32,
     flags: i32,
-) -> Result<FileAttr, ()> {
+) -> DbfsResult<FileAttr> {
     warn!(
         "dbfs_fuse_create(parent:{},name:{},mode:{})",
         parent, name, mode
     );
-
     // checkout the open flags
     let (_read, _write) = match flags & libc::O_ACCMODE {
         libc::O_RDONLY => (true, false),
@@ -33,19 +37,25 @@ pub fn dbfs_fuse_create(
         libc::O_RDWR => (true, true),
         // Exactly one access mode flag must be specified
         _ => {
-            return Err(());
+            return Err(DbfsError::InvalidArgument);
         }
     };
 
     let permission = DbfsPermission::from_bits_truncate(mode as u16);
     let uid = req.uid();
     let gid = req.gid();
-    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
-    let res = dbfs_common_create(parent as usize, name, uid, gid, ctime, permission, None);
-    if res.is_err() {
-        return Err(());
-    }
-    Ok(res.unwrap().into())
+    let ctime = DbfsTimeSpec::from(SystemTime::now());
+    let res = dbfs_common_create(
+        parent as usize,
+        name,
+        uid,
+        gid,
+        ctime,
+        permission,
+        None,
+        None,
+    );
+    res.map(|attr| attr.into())
 }
 
 /// Create a directory
@@ -65,8 +75,17 @@ pub fn dbfs_fuse_mkdir(
     permission |= DbfsPermission::S_IFDIR;
     let uid = req.uid();
     let gid = req.gid();
-    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
-    let res = dbfs_common_create(parent as usize, name, uid, gid, ctime, permission, None);
+    let ctime = DbfsTimeSpec::from(SystemTime::now());
+    let res = dbfs_common_create(
+        parent as usize,
+        name,
+        uid,
+        gid,
+        ctime,
+        permission,
+        None,
+        None,
+    );
     if res.is_err() {
         return Err(());
     }
@@ -77,7 +96,7 @@ pub fn dbfs_fuse_truncate(req: &Request<'_>, ino: u64, size: u64) -> DbfsResult<
     warn!("dbfs_fuse_truncate(ino:{},size:{})", ino, size);
     let uid = req.uid();
     let gid = req.gid();
-    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
+    let ctime = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_truncate(uid, gid, ino as usize, ctime, size as usize)
 }
 
@@ -85,7 +104,7 @@ pub fn dbfs_fuse_rmdir(req: &Request<'_>, parent: u64, name: &str) -> DbfsResult
     warn!("dbfs_fuse_rmdir(parent:{},name:{})", parent, name);
     let uid = req.uid();
     let gid = req.gid();
-    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
+    let ctime = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_rmdir(uid, gid, parent as usize, name, ctime)
 }
 
@@ -102,7 +121,7 @@ pub fn dbfs_fuse_fallocate(
     );
     let uid = req.uid();
     let gid = req.gid();
-    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
+    let ctime = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_fallocate(
         uid,
         gid,
@@ -128,7 +147,7 @@ pub fn dbfs_fuse_rename(
     );
     let uid = req.uid();
     let gid = req.gid();
-    let ctime = DbfsTimeSpec::from(SystemTime::now()).into();
+    let ctime = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_rename(
         uid,
         gid,
@@ -138,5 +157,38 @@ pub fn dbfs_fuse_rename(
         newname,
         flags,
         ctime,
+    )
+}
+
+pub fn dbfs_fuse_mknod(
+    req: &Request<'_>,
+    parent: u64,
+    name: &str,
+    mode: u32,
+    dev: u32,
+) -> DbfsResult<DbfsAttr> {
+    warn!(
+        "dbfs_fuse_mknod(parent:{},name:{},mode:{},dev:{})",
+        parent, name, mode, dev
+    );
+    let permission = DbfsPermission::from_bits_truncate(mode as u16);
+    // if !permission.contains(DbfsPermission::S_IFDIR)
+    //     && !permission.contains(DbfsPermission::S_IFREG)
+    //     && !permission.contains(DbfsPermission::S_IFLNK){
+    //         return Err(DbfsError::NoSys);
+    //     }
+    println!("permission:{:?}", permission);
+    let uid = req.uid();
+    let gid = req.gid();
+    let ctime = DbfsTimeSpec::from(SystemTime::now());
+    dbfs_common_create(
+        parent as usize,
+        name,
+        uid,
+        gid,
+        ctime,
+        permission,
+        None,
+        Some(dev),
     )
 }

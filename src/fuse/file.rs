@@ -109,7 +109,7 @@ pub fn dbfs_fuse_copy_file_range(
         "dbfs_fuse_copy_file_range(ino_in:{},offset_in:{},ino_out:{},offset_out:{},len:{})",
         ino_in, offset_in, ino_out, offset_out, len
     );
-    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    let time = DbfsTimeSpec::from(SystemTime::now());
     let uid = req.uid();
     let gid = req.gid();
     dbfs_common_copy_file_range(

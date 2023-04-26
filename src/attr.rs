@@ -1,11 +1,10 @@
-
 use crate::common::{
     DbfsAttr, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, XattrNamespace, ACCESS_R_OK,
     ACCESS_W_OK,
 };
 use crate::inode::{checkout_access, dbfs_common_attr};
 use crate::{clone_db, u16, u32};
-
+use log::error;
 
 pub fn dbfs_common_setxattr(
     r_uid: u32,
@@ -13,7 +12,7 @@ pub fn dbfs_common_setxattr(
     ino: usize,
     key: &str,
     value: &[u8],
-    ctime: usize,
+    ctime: DbfsTimeSpec,
 ) -> DbfsResult<()> {
     let db = clone_db();
     let tx = db.tx(true).unwrap();
@@ -106,7 +105,7 @@ pub fn dbfs_common_removexattr(
     r_gid: u32,
     ino: usize,
     key: &str,
-    ctime: usize,
+    ctime: DbfsTimeSpec,
 ) -> DbfsResult<()> {
     let db = clone_db();
     let tx = db.tx(true).unwrap();
@@ -130,7 +129,7 @@ pub fn dbfs_common_chmod(
     r_gid: u32,
     ino: usize,
     mode: u16,
-    ctime: usize,
+    ctime: DbfsTimeSpec,
 ) -> DbfsResult<DbfsAttr> {
     let mut attr = dbfs_common_attr(ino).map_err(|_| DbfsError::Other)?;
     // checkout access
@@ -168,7 +167,7 @@ pub fn dbfs_common_chown(
     ino: usize,
     uid: Option<u32>,
     gid: Option<u32>,
-    c_time: usize,
+    c_time: DbfsTimeSpec,
 ) -> DbfsResult<DbfsAttr> {
     let mut attr = dbfs_common_attr(ino).map_err(|_| DbfsError::Other)?;
     if let Some(gid) = gid {
@@ -220,11 +219,11 @@ pub fn dbfs_common_utimens(
     r_uid: u32,
     r_gid: u32,
     ino: usize,
-    atime: Option<usize>,
-    mtime: Option<usize>,
-    c_time: usize,
+    atime: Option<DbfsTimeSpec>,
+    mtime: Option<DbfsTimeSpec>,
+    c_time: DbfsTimeSpec,
 ) -> DbfsResult<DbfsAttr> {
-    let mut attr = dbfs_common_attr(ino).map_err(|_| DbfsError::Other)?;
+    let mut attr = dbfs_common_attr(ino)?;
     // checkout access
     let _uid = attr.uid;
     let _gid = attr.gid;
@@ -254,6 +253,12 @@ pub fn dbfs_common_utimens(
     tx.commit()?;
 
     attr.ctime = DbfsTimeSpec::from(c_time);
+
+    error!(
+        "utimens attr: {:?} {:?} {:?}",
+        attr.atime, attr.mtime, attr.ctime
+    );
+
     Ok(attr)
 }
 

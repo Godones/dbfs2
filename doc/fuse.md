@@ -1,4 +1,36 @@
-# dbfs的fuse接口实现
+# dbfs with fuse interface
+
+dbfs中提供了与系统无关的函数，可以同时支持我们使用rust实现的vfs接口，同时也可以支持fuse的接口。rust有fuse用户态的实现，因此可以方便地进行适配。
+
+## Fuse
+
+<img src="assert/b360be6f915a98e85780454c03160882.png" alt="img" style="zoom:50%;" />
+
+
+
+
+
+![img](assert/0d0a071f184dcc3884b73321ad9793ea.gif)
+
+![img](assert/0b7beda12f1ffea18de8c62fbfc3c941.gif)
+
+检测内核是否支持fuse:
+
+```
+modprobe fuse
+```
+
+
+
+## Project Layer
+
+
+
+![dbfs_layer](assert/dbfs_layer.svg)
+
+
+
+## Structure
 
 ```rust
 bitflags! {
@@ -30,6 +62,44 @@ bitflags! {
 ```
 
 DBFS中的permission包含了文件类型与读写权限。在获取属性时，需要从permission中获取文件类型，而在创建文件时，需要从permission中获取读写权限。
+
+
+
+## Interface implementation
+
+```rust
+getattr
+lookup
+chmod
+chown
+truncate
+utimens
+readlink
+mkdir
+unlink
+rmdir
+symlink
+rename
+link
+open
+read
+write
+flush
+release
+opendir
+readdir
+statfs
+setxattr
+getxattr
+listxattr
+removexattr
+access
+create
+fallocate
+copy_file_range
+```
+
+
 
 
 

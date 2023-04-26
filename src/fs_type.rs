@@ -4,9 +4,9 @@ use crate::{clone_db, u32, u64, usize};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::sync::{Arc, Weak};
-use alloc::{vec};
+use alloc::vec;
 
-use crate::common::{DbfsFsStat, generate_data_key};
+use crate::common::{generate_data_key, DbfsFsStat, DbfsResult, DbfsTimeSpec};
 use rvfs::dentry::{DirEntry, DirEntryOps, DirFlags};
 use rvfs::file::FileMode;
 use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode};
@@ -125,7 +125,8 @@ fn dbfs_fill_super_block(sb_blk: Arc<SuperBlock>) -> StrResult<()> {
 
 // create root inode for dbfs
 fn dbfs_create_root_inode(sb_blk: Arc<SuperBlock>) -> StrResult<Arc<Inode>> {
-    let count = dbfs_common_root_inode(0, 0, 0)?;
+    let count = dbfs_common_root_inode(0, 0, DbfsTimeSpec::default())
+        .map_err(|_| "create root inode failed")?;
     let first_number = DBFS_INODE_NUMBER.load(core::sync::atomic::Ordering::SeqCst);
     assert_eq!(first_number, 2);
     // create a inode from super block
@@ -144,9 +145,9 @@ fn dbfs_create_root_inode(sb_blk: Arc<SuperBlock>) -> StrResult<Arc<Inode>> {
     Ok(inode)
 }
 
-pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: usize) -> Result<usize, &'static str> {
+pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: DbfsTimeSpec) -> DbfsResult<usize> {
     let db = clone_db();
-    let tx = db.tx(true).unwrap();
+    let tx = db.tx(true)?;
     if tx.get_bucket(1usize.to_be_bytes()).is_err() {
         // The root dir
         let permission = permission_from_mode(FileMode::FMODE_RDWR, InodeMode::S_DIR);
@@ -172,10 +173,10 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: usize) -> Result<usize,
         let key = generate_data_key(0);
         new_inode.put(key, ".:1").unwrap();
     }
-    let bucket = tx.get_bucket(1usize.to_be_bytes()).unwrap();
+    let bucket = tx.get_bucket(1usize.to_be_bytes())?;
     let count = bucket.get_kv("size").unwrap();
     let count = usize!(count.value());
-    tx.commit().map_err(|_| "create root false")?;
+    tx.commit()?;
     Ok(count)
 }
 
@@ -207,11 +208,11 @@ pub fn dbfs_common_statfs(
     blk_size: Option<u64>,
     magic: Option<u32>,
     mount_flags: Option<u64>,
-) -> Result<DbfsFsStat, ()> {
+) -> DbfsResult<DbfsFsStat> {
     let (disk_size, magic) = {
         let db = clone_db();
-        let tx = db.tx(false).unwrap();
-        let bucket = tx.get_bucket("super_blk").unwrap();
+        let tx = db.tx(false)?;
+        let bucket = tx.get_bucket("super_blk")?;
         let disk_size = bucket.get_kv("disk_size").unwrap();
         let disk_size = u64!(disk_size.value());
         let magic = magic.unwrap_or_else(|| {

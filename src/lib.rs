@@ -79,3 +79,10 @@ macro_rules! u64 {
         u64::from_be_bytes($x.try_into().unwrap())
     };
 }
+
+#[macro_export]
+macro_rules! dbfs_time_spec {
+    ($x:expr) => {
+        crate::common::DbfsTimeSpec::from($x)
+    };
+}

@@ -3,14 +3,17 @@ use alloc::borrow::ToOwned;
 
 use alloc::string::ToString;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
-use alloc::{vec};
 use core::cmp::{max, min};
 use core::ops::Range;
 use jammdb::Data;
 use log::{debug, error, warn};
 
-use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, generate_data_key};
+use crate::common::{
+    generate_data_key, DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult,
+    DbfsTimeSpec,
+};
 use crate::inode::{checkout_access, dbfs_common_attr};
 use rvfs::dentry::DirContext;
 use rvfs::file::{File, FileOps};
@@ -78,7 +81,11 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     let start_key = generate_data_key(start_num as u32);
     let end_key = generate_data_key(end_num as u32);
 
-    warn!("start_key: {:?}, end_key: {:?}", start_key.as_slice(), end_key.as_slice());
+    warn!(
+        "start_key: {:?}, end_key: {:?}",
+        start_key.as_slice(),
+        end_key.as_slice()
+    );
     let range = Range {
         start: start_key.as_slice(),
         end: end_key.as_slice(),
@@ -188,7 +195,7 @@ fn dbfs_readdir(file: Arc<File>) -> StrResult<DirContext> {
     let bucket = tx.get_bucket(numer.to_be_bytes()).unwrap();
     let mut data = vec![];
     bucket.kv_pairs().for_each(|x| {
-        if x.key().starts_with("data:".as_bytes()){
+        if x.key().starts_with("data:".as_bytes()) {
             let value = x.value();
             let str = core::str::from_utf8(value).unwrap();
             let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
@@ -214,15 +221,15 @@ pub fn dbfs_common_readdir(
 
     let start_key = generate_data_key(offset as u32);
     let end_key = generate_data_key(next_number);
-    let range = Range{
+    let range = Range {
         start: start_key.as_slice(),
         end: end_key.as_slice(),
     };
 
-    bucket.range(range).for_each(|x|{
-        if let Data::KeyValue(kv) = x{
+    bucket.range(range).for_each(|x| {
+        if let Data::KeyValue(kv) = x {
             let key = kv.key();
-            let key = key.splitn(2,|x|*x == b':').collect::<Vec<&[u8]>>();
+            let key = key.splitn(2, |x| *x == b':').collect::<Vec<&[u8]>>();
             let key = key[1];
             let offset = u32!(key);
             let value = kv.value();
@@ -244,7 +251,8 @@ pub fn dbfs_common_readdir(
     });
     error!(
         "dbfs_common_readdir: offset: {}, count: {}, buf:{:?}",
-        offset,count,
+        offset,
+        count,
         &buf[0..count]
     );
     Ok(count)
@@ -268,7 +276,7 @@ pub fn dbfs_common_copy_file_range(
     dest: usize,
     offset_dest: usize,
     len: usize,
-    ctime: usize,
+    ctime: DbfsTimeSpec,
 ) -> DbfsResult<usize> {
     // now we ignore the uid and gid
     let db = clone_db();

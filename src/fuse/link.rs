@@ -10,12 +10,19 @@ pub fn dbfs_fuse_link(
     ino: u64,
     newparent: u64,
     newname: &str,
-) -> Result<DbfsAttr, DbfsError> {
+) -> DbfsResult<DbfsAttr> {
     warn!(
-        "dbfs_fuse_link(ino:{}, newparent:{}, newname:{:?})",
-        ino, newparent, newname
+        "dbfs_fuse_link(ino:{}, newparent:{}, newname:{:?}, newname.len:{})",
+        ino,
+        newparent,
+        newname,
+        newname.len()
     );
-    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    // checkout the name length
+    if newname.as_bytes().len() > MAX_PATH_LEN {
+        return Err(DbfsError::NameTooLong);
+    }
+    let time = DbfsTimeSpec::from(SystemTime::now());
     dbfs_common_link(
         req.uid(),
         req.gid(),
@@ -33,10 +40,17 @@ pub fn dbfs_fuse_symlink(
     link: &str,
 ) -> DbfsResult<DbfsAttr> {
     warn!(
-        "dbfs_fuse_symlink(parent:{}, name:{:?}, link:{:?})",
-        parent, name, link
+        "dbfs_fuse_symlink(parent:{}, name:{:?}, link:{:?}, name.len:{}, link.len:{})",
+        parent,
+        name,
+        link,
+        name.len(),
+        link.len()
     );
-    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    if name.as_bytes().len() > MAX_PATH_LEN {
+        return Err(DbfsError::NameTooLong);
+    }
+    let time = DbfsTimeSpec::from(SystemTime::now());
     let mut permission = DbfsPermission::from_bits_truncate(0o777);
     permission |= DbfsPermission::S_IFLNK;
     let attr = dbfs_common_create(
@@ -47,6 +61,7 @@ pub fn dbfs_fuse_symlink(
         time,
         permission,
         Some(link),
+        None,
     )?;
     Ok(attr)
 }
@@ -60,7 +75,7 @@ pub fn dbfs_fuse_readlink(ino: u64) -> DbfsResult<[u8; MAX_PATH_LEN]> {
 
 pub fn dbfs_fuse_unlink(req: &Request<'_>, parent: u64, name: &str) -> DbfsResult<()> {
     error!("dbfs_fuse_unlink(parent:{}, name:{:?})", parent, name);
-    let time = DbfsTimeSpec::from(SystemTime::now()).into();
+    let time = DbfsTimeSpec::from(SystemTime::now());
     let _res = dbfs_common_unlink(req.uid(), req.gid(), parent as usize, name, None, time)?;
     Ok(())
 }

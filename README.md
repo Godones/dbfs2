@@ -88,3 +88,17 @@ fn init_db(db: &DB) {
 }
 
 ```
+
+
+
+## Fuse support
+
+dbfs also supports the interface defined by fuse, so you can mount dbfs on linux and complete most of the operations.
+
+Please check the link [fuse](doc/fuse.md) for details
+
+### run
+
+```rus
+ RUST_LOG=info cargo run --example fuse -- --auto_unmount ../../dbfuse
+```
