@@ -68,7 +68,6 @@ fn fuse() {
     // }
 
     options.push(MountOption::DefaultPermissions);
-
     let fs = DbfsFuse::new(
         matches.contains_id("direct-io"),
         matches.contains_id("suid"),

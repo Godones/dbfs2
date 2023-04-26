@@ -415,8 +415,9 @@ impl Filesystem for DbfsFuse {
         _ino: u64,
         _fh: u64,
         _datasync: bool,
-        _reply: ReplyEmpty,
+        reply: ReplyEmpty,
     ) {
+        reply.ok();
         error!("fsync not implemented");
     }
 
@@ -432,9 +433,8 @@ impl Filesystem for DbfsFuse {
                 let open_flags = if self.direct_io { FOPEN_DIRECT_IO } else { 0 };
                 reply.opened(0, open_flags);
             }
-            Err(_) => {
-                panic!("opendir error");
-                // reply.error(res.err().unwrap() as i32)
+            Err(x) => {
+                reply.error(x as i32)
             }
         }
     }
