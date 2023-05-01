@@ -14,7 +14,7 @@ dbop = {git = "https://github.com/os-module/dbop.git"}
 preprint = "0.1.0"
 onlyerror = {version =  "0.1",default-features = false }
 
-fuser = {version = "0.7.0", optional = true}
+fuser = {version = "0.12.0", optional = true}
 libc = {version = "0.2.51",optional = true}
 core2 = {version = "0.4.0",default-features = false,optional = true}
 memmap2 = {version = "0.5.10",optional = true}
@@ -24,7 +24,7 @@ log = "0.4.17"
 [features]
 default = ["rvfs",]
 rvfs = []
-fuse = ["fuser","libc","core2","memmap2","downcast","fuser/abi-7-19"]
+fuse = ["fuser","libc","core2","memmap2","downcast","fuser/abi-7-19","fuser/abi-7-16","fuser/abi-7-28"]
 
 [dev-dependencies]
 env_logger = "0.9.0"

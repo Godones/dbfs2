@@ -12,21 +12,14 @@ use downcast::_std::path::Path;
 use downcast::_std::println;
 use downcast::_std::time::SystemTime;
 use fuser::consts::FOPEN_DIRECT_IO;
-use fuser::{
-    FileAttr, Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData,
-    ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek,
-    ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
-};
+use fuser::{FileAttr, Filesystem, fuse_forget_one, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow};
 use jammdb::DB;
 use libc::{c_int, ENOENT};
 use log::{error, info, warn};
 use std::ffi::OsStr;
 use std::time::Duration;
 
-use crate::fuse::file::{
-    dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read,
-    dbfs_fuse_readdir, dbfs_fuse_write,
-};
+use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_write};
 use crate::fuse::inode::{
     dbfs_fuse_create, dbfs_fuse_fallocate, dbfs_fuse_lookup, dbfs_fuse_mkdir, dbfs_fuse_mknod,
     dbfs_fuse_rename, dbfs_fuse_rmdir, dbfs_fuse_truncate,
@@ -88,10 +81,9 @@ impl Filesystem for DbfsFuse {
         Ok(())
     }
     /// Clean up filesystem
-    ///
-    /// Called on filesystem exit.
-    fn destroy(&mut self, _req: &Request<'_>) {
+    fn destroy(&mut self) {
         // TODO: close db
+        //
         // we need write back the metadata
         // 1. continue_number to super_block
         // 2. disk_size to super_blk
@@ -109,9 +101,6 @@ impl Filesystem for DbfsFuse {
         match res {
             Ok(attr) => reply.entry(&TTL, &attr, 0),
             Err(x) => {
-                if name == "." || name == ".." {
-                    panic!("lookup panic");
-                }
                 reply.error(x as i32);
             }
         }
@@ -120,13 +109,17 @@ impl Filesystem for DbfsFuse {
         info!("forget");
     }
 
+    fn batch_forget(&mut self, req: &Request<'_>, nodes: &[fuse_forget_one]) {
+        for node in nodes{
+            warn!("batch_forget: {}", node.nodeid);
+        }
+    }
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
         let res = dbfs_fuse_getattr(ino);
         match res {
             Ok(attr) => reply.attr(&TTL, &attr),
-            Err(_) => {
-                panic!("getattr error");
-                // reply.error(ENOENT)
+            Err(x) => {
+                reply.error(x as i32)
             }
         }
     }
@@ -190,6 +183,7 @@ impl Filesystem for DbfsFuse {
             return;
         }
     }
+
     /// Read the target of a symbolic link
     ///
     /// The buffer should be filled with a null terminated string. The buffer size argument includes the space for the terminating null character.
@@ -245,19 +239,20 @@ impl Filesystem for DbfsFuse {
         let res = dbfs_fuse_unlink(req, parent, name.to_str().unwrap());
         match res {
             Ok(_) => reply.ok(),
-            Err(_) => {
-                panic!("unlink panic");
-                // reply.error(ENOENT)
+            Err(x) => {
+                // panic!("unlink panic");
+                reply.error(x as i32)
             }
         }
     }
-
     /// Remove the given directory. This should succeed only if the directory is empty (except for "." and "..").
     fn rmdir(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         let res = dbfs_fuse_rmdir(req, parent, name.to_str().unwrap());
         match res {
             Ok(_) => reply.ok(),
-            Err(x) => reply.error(x as i32),
+            Err(x) => {
+                reply.error(x as i32)
+            },
         }
     }
     /// Create a symbolic link
@@ -275,6 +270,7 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
+
     /// Rename a file
     //
     // flags may be RENAME_EXCHANGE or RENAME_NOREPLACE.
@@ -392,7 +388,6 @@ impl Filesystem for DbfsFuse {
     ) {
         reply.ok();
     }
-
     fn release(
         &mut self,
         _req: &Request<'_>,
@@ -406,6 +401,7 @@ impl Filesystem for DbfsFuse {
         error!("release not implemented");
         reply.ok();
     }
+
     ///Synchronize file contents
     ///
     /// If the datasync parameter is non-zero, then only the user data should be flushed, not the meta data.
@@ -450,6 +446,10 @@ impl Filesystem for DbfsFuse {
         dbfs_fuse_readdir(ino, offset, reply)
     }
 
+    fn readdirplus(&mut self, _req: &Request<'_>, ino: u64, _fh: u64, offset: i64, reply: ReplyDirectoryPlus) {
+        dbfs_fuse_readdirplus(ino,offset,reply)
+    }
+
     /// Release directory
     ///
     /// If the directory has been removed after the call to opendir, the path parameter will be NULL.
@@ -464,7 +464,6 @@ impl Filesystem for DbfsFuse {
         warn!("releasedir always ok");
         reply.ok()
     }
-
     fn fsyncdir(
         &mut self,
         _req: &Request<'_>,
@@ -537,6 +536,7 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
+
     /// List extended attributes
     fn listxattr(&mut self, req: &Request<'_>, ino: u64, size: u32, reply: ReplyXattr) {
         let mut buf = vec![0u8; size as usize];
@@ -552,7 +552,6 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
-
     /// Remove extended attributes
     fn removexattr(&mut self, req: &Request<'_>, ino: u64, name: &OsStr, reply: ReplyEmpty) {
         let res = dbfs_fuse_removexattr(req, ino, name.to_str().unwrap());
@@ -575,6 +574,21 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
+    // fn bmap(&mut self, _req: &Request<'_>, _ino: u64, _blocksize: u32, _idx: u64, reply: ReplyBmap) {
+    //     todo!()
+    // }
+    // fn getlk(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _lock_owner: u64, _start: u64, _end: u64, _typ: i32, _pid: u32, reply: ReplyLock) {
+    //     todo!()
+    // }
+    // fn setlk(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _lock_owner: u64, _start: u64, _end: u64, _typ: i32, _pid: u32, _sleep: bool, reply: ReplyEmpty) {
+    //     todo!()
+    // }
+
+    // macos
+    // fn exchange(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr, _options: u64, reply: ReplyEmpty) {
+    //
+    // }
+
     /// Create and open a file
     ///
     /// If the file does not exist, first create it with the specified mode, and then open it.
@@ -597,6 +611,11 @@ impl Filesystem for DbfsFuse {
         }
     }
 
+    // macos
+    // fn getxtimes(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyXTimes) {
+    //
+    // }
+
     fn ioctl(
         &mut self,
         _req: &Request<'_>,
@@ -610,18 +629,13 @@ impl Filesystem for DbfsFuse {
     ) {
         todo!()
     }
-    // fn bmap(&mut self, _req: &Request<'_>, _ino: u64, _blocksize: u32, _idx: u64, reply: ReplyBmap) {
-    //     todo!()
-    // }
-    // fn getlk(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _lock_owner: u64, _start: u64, _end: u64, _typ: i32, _pid: u32, reply: ReplyLock) {
-    //     todo!()
-    // }
-    // fn setlk(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _lock_owner: u64, _start: u64, _end: u64, _typ: i32, _pid: u32, _sleep: bool, reply: ReplyEmpty) {
+
+    // fn lseek(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _offset: i64, _whence: i32, reply: ReplyLseek) {
     //     todo!()
     // }
 
     // macos
-    // fn exchange(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr, _options: u64, reply: ReplyEmpty) {
+    // fn setvolname(&mut self, _req: &Request<'_>, _name: &OsStr, reply: ReplyEmpty) {
     //
     // }
 
@@ -646,11 +660,6 @@ impl Filesystem for DbfsFuse {
             Err(x) => reply.error(x as i32),
         }
     }
-
-    // macos
-    // fn getxtimes(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyXTimes) {
-    //
-    // }
 
     /// Copy a range of data from one file to another
     /// Performs an optimized copy between two file descriptors without the additional cost of transferring data through the FUSE kernel module to user space (glibc) and then back into the FUSE filesystem again.
@@ -683,15 +692,4 @@ impl Filesystem for DbfsFuse {
         }
     }
 
-    // fn lseek(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _offset: i64, _whence: i32, reply: ReplyLseek) {
-    //     todo!()
-    // }
-    // fn readdirplus(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _offset: i64, reply: ReplyDirectoryPlus) {
-    //     todo!()
-    // }
-
-    // macos
-    // fn setvolname(&mut self, _req: &Request<'_>, _name: &OsStr, reply: ReplyEmpty) {
-    //
-    // }
 }

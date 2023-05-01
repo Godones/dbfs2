@@ -5,10 +5,11 @@ use crate::file::{
 };
 use alloc::vec;
 use downcast::_std::time::SystemTime;
-use fuser::{ReplyDirectory, Request};
+use fuser::{ReplyDirectory, ReplyDirectoryPlus, Request};
 use log::error;
 
 use rvfs::warn;
+use crate::fuse::TTL;
 
 pub fn dbfs_fuse_read(ino: u64, offset: i64, buf: &mut [u8]) -> Result<usize, ()> {
     assert!(offset >= 0);
@@ -25,7 +26,7 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
     assert!(offset >= 0);
     let mut entries = vec![DbfsDirEntry::default(); 16]; // we read 16 entries at a time
     loop {
-        let res = dbfs_common_readdir(ino as usize, &mut entries, offset as u64);
+        let res = dbfs_common_readdir(ino as usize, &mut entries, offset as u64,false);
         if res.is_err() {
             repl.error(libc::ENOENT);
             return;
@@ -38,6 +39,35 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
         for i in 0..res {
             let x = &entries[i];
             if repl.add(x.ino, x.offset as i64 + 1, x.kind.into(), x.name.as_str()) {
+                // buf full
+                repl.ok();
+                return;
+            }
+            offset = x.offset as i64 + 1;
+        }
+    }
+}
+
+
+pub fn dbfs_fuse_readdirplus(ino:u64, mut offset:i64, mut repl:ReplyDirectoryPlus){
+    // panic!("dbfs_fuse_readdirplus(ino:{},offset:{})",ino,offset);
+    assert!(offset >= 0);
+    let mut entries = vec![DbfsDirEntry::default(); 16]; // we read 16 entries at a time
+    loop {
+        let res = dbfs_common_readdir(ino as usize, &mut entries, offset as u64,true);
+        if res.is_err() {
+            repl.error(libc::ENOENT);
+            return;
+        }
+        let res = res.unwrap();
+        if res == 0 {
+            repl.ok();
+            return;
+        }
+        for i in 0..res {
+            let x = &entries[i];
+            let attr = x.attr.as_ref().unwrap();
+            if repl.add(x.ino, x.offset as i64 + 1, x.name.as_str(), &TTL, &attr.into(), 0) {
                 // buf full
                 repl.ok();
                 return;

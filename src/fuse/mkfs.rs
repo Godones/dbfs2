@@ -63,11 +63,12 @@ impl OpenOption for MyOpenOptions {
 
 pub struct FakeFile {
     file: std::fs::File,
+    size: usize,
 }
 
 impl FakeFile {
     pub fn new(file: std::fs::File) -> Self {
-        FakeFile { file }
+        FakeFile { file, size: 0 }
     }
 }
 

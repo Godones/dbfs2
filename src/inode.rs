@@ -835,6 +835,7 @@ pub fn dbfs_common_rmdir(
     let size = usize!(size.value());
     // if size > 2, it means the directory is not empty
     //  Directories always have a self and parent link
+    error!("dbfs_rmdir {}: size {}",number, size);
     if size > 2 {
         return Err(DbfsError::NotEmpty);
     }
@@ -864,6 +865,7 @@ pub fn dbfs_common_rmdir(
     p_bucket.put("size", (p_size - 1).to_be_bytes())?;
     // delete the inode
     tx.delete_bucket(number.to_be_bytes())?;
+    error!("======== delete dir {} =========",name);
     tx.commit()?;
     Ok(())
 }
@@ -1113,7 +1115,21 @@ pub fn dbfs_common_rename(
     }
 
     let tx = db.tx(true)?;
+    // let new_dir_bucket = tx.get_bucket(new_dir.to_be_bytes())?;
+
+
+    let old_dir_bucket = tx.get_bucket(old_dir.to_be_bytes())?;
     let new_dir_bucket = tx.get_bucket(new_dir.to_be_bytes())?;
+
+
+    let old_dir_bucket = &old_dir_bucket;
+
+    let new_dir_bucket = if old_dir == new_dir{
+      old_dir_bucket
+    }else {
+        &new_dir_bucket
+    };
+
     let new_dir_size = new_dir_bucket.get_kv("size").unwrap();
     let mut new_dir_size = usize!(new_dir_size.value());
 
@@ -1125,7 +1141,7 @@ pub fn dbfs_common_rename(
         // 2.1 update the size
         // new_dir_bucket.put("size",(new_dir_size - 1).to_be_bytes())?;
 
-        new_dir_size -= 1;
+        new_dir_size = new_dir_size - 1;
 
         // 2.2 update the hardlink count
         let new_perm = DbfsPermission::from_bits_truncate(new_perm);
@@ -1150,12 +1166,14 @@ pub fn dbfs_common_rename(
     }
     // debug!("we delete the old_number :{:?}",old_number);
     // 3. delete the old_key
-    let old_dir_bucket = tx.get_bucket(old_dir.to_be_bytes())?;
+
     old_dir_bucket.delete(old_key.as_slice())?;
     // 3.1 update the size
-    let size = old_dir_bucket.get_kv("size").unwrap();
-    let size = usize!(size.value());
-    old_dir_bucket.put("size", (size - 1).to_be_bytes())?;
+
+    let old_dir_size = old_dir_bucket.get_kv("size").unwrap();
+    let mut old_dir_size =  usize!(old_dir_size.value());
+
+    old_dir_bucket.put("size", (old_dir_size - 1).to_be_bytes())?;
 
     // debug!("we insert the old_number to new_dir :{:?}",old_number);
     // 4. insert the old_key to new_dir
@@ -1171,7 +1189,12 @@ pub fn dbfs_common_rename(
     }
 
     // 4.1 update the size
-    new_dir_bucket.put("size", (new_dir_size + 1).to_be_bytes())?;
+    let new_dir_size = if old_dir == new_dir{
+        new_dir_size
+    }else {
+        new_dir_size + 1
+    };
+    new_dir_bucket.put("size", new_dir_size.to_be_bytes())?;
 
     // 5.update ctime/mtime for old_dir and new_dir
     old_dir_bucket.put("ctime", ctime.to_be_bytes())?;

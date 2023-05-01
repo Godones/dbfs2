@@ -148,6 +148,12 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
 /// the i should be u32, because we can store 2^32 * 512 bytes in dbfs, == 2048 GB
 /// u32 == 4 bytes, 0x00000000 - 0xffffffff
 pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<usize> {
+    debug!(
+        "dbfs_common_write ino: {}, offset: {}, buf.len: {}",
+        number,
+        offset,
+        buf.len()
+    );
     let db = clone_db();
     let tx = db.tx(true)?;
     let bucket = tx.get_bucket(number.to_be_bytes())?;
@@ -210,10 +216,11 @@ pub fn dbfs_common_readdir(
     number: usize,
     buf: &mut Vec<DbfsDirEntry>,
     offset: u64,
-) -> Result<usize, ()> {
+    is_readdir_plus:bool
+) -> DbfsResult<usize> {
     let db = clone_db();
-    let tx = db.tx(false).unwrap();
-    let bucket = tx.get_bucket(number.to_be_bytes()).unwrap();
+    let tx = db.tx(false)?;
+    let bucket = tx.get_bucket(number.to_be_bytes())?;
     buf.clear();
     let next_number = bucket.get_kv("next_number").unwrap();
     let next_number = u32!(next_number.value());
@@ -236,16 +243,25 @@ pub fn dbfs_common_readdir(
             let str = core::str::from_utf8(value).unwrap();
             let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
             let inode_number = name[0].parse::<usize>().unwrap();
-            let inode = tx.get_bucket(inode_number.to_be_bytes()).unwrap();
             let mut entry = DbfsDirEntry::default();
             entry.name = name[1].to_string();
             entry.ino = inode_number as u64;
             entry.offset = offset as u64;
-            let mode = inode.get_kv("mode").unwrap();
-            let mode = u16!(mode.value());
-            let perm = DbfsPermission::from_bits_truncate(mode);
-            entry.kind = DbfsFileType::from(perm);
+
+            if !is_readdir_plus{
+                let inode = tx.get_bucket(inode_number.to_be_bytes()).unwrap();
+                let mode = inode.get_kv("mode").unwrap();
+                let mode = u16!(mode.value());
+                let perm = DbfsPermission::from_bits_truncate(mode);
+                entry.kind = DbfsFileType::from(perm);
+            }else {
+                let attr = dbfs_common_attr(inode_number).unwrap();
+                entry.kind = attr.kind;
+                entry.attr = Some(attr);
+            }
+
             buf.push(entry);
+
             count += 1;
         }
     });

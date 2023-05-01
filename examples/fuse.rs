@@ -68,6 +68,7 @@ fn fuse() {
     // }
 
     options.push(MountOption::DefaultPermissions);
+
     let fs = DbfsFuse::new(
         matches.contains_id("direct-io"),
         matches.contains_id("suid"),
@@ -75,6 +76,8 @@ fn fuse() {
     options.push(MountOption::Atime);
     options.push(MountOption::AllowOther);
     options.push(MountOption::RW);
+
+    println!("options: {:?}",options);
     fuser::mount2(fs, mountpoint, &options).unwrap();
 }
 

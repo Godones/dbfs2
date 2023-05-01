@@ -104,6 +104,7 @@ pub fn dbfs_common_unlink(
         // update ctime
         bucket.put("ctime", c_time.to_be_bytes())?;
     }
+    error!("dir {} size now is {}, ino is {}", dir, size - 1,ino);
     tx.commit()?;
     Ok(())
 }

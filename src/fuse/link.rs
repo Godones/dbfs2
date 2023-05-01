@@ -76,6 +76,5 @@ pub fn dbfs_fuse_readlink(ino: u64) -> DbfsResult<[u8; MAX_PATH_LEN]> {
 pub fn dbfs_fuse_unlink(req: &Request<'_>, parent: u64, name: &str) -> DbfsResult<()> {
     error!("dbfs_fuse_unlink(parent:{}, name:{:?})", parent, name);
     let time = DbfsTimeSpec::from(SystemTime::now());
-    let _res = dbfs_common_unlink(req.uid(), req.gid(), parent as usize, name, None, time)?;
-    Ok(())
+    dbfs_common_unlink(req.uid(), req.gid(), parent as usize, name, None, time)
 }

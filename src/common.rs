@@ -4,7 +4,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::bitflags;
-use core::fmt::{Display, Formatter};
+use core::fmt::{Debug, Display, Formatter};
 use core::ops::Deref;
 use onlyerror::Error;
 
@@ -18,13 +18,28 @@ pub const ACCESS_X_OK: u16 = 1;
 
 pub const RENAME_EXCHANGE: u32 = 0x2;
 
-#[derive(Debug, Default, Clone)]
+#[derive( Default, Clone)]
 pub struct DbfsDirEntry {
     pub ino: u64,
     pub offset: u64,
     pub kind: DbfsFileType,
     pub name: String,
+    /// for readdir plus
+    pub attr: Option<DbfsAttr>
 }
+
+impl Debug for DbfsDirEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DbfsDirEntry")
+            .field("ino", &self.ino)
+            .field("offset", &self.offset)
+            .field("kind", &self.kind)
+            .field("name", &self.name)
+            .field("attr", &self.attr.is_some())
+            .finish()
+    }
+}
+
 
 #[derive(Error, Debug)]
 pub enum DbfsError {
@@ -224,7 +239,7 @@ impl DbfsTimeSpec {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default,Clone)]
 pub struct DbfsAttr {
     /// Inode number
     pub ino: usize,
@@ -337,11 +352,33 @@ mod impl_fuse {
                 gid: value.gid,
                 rdev: value.rdev,
                 blksize: value.blksize,
-                padding: 0,
                 flags: 0,
             }
         }
     }
+
+    impl From<&DbfsAttr>  for FileAttr{
+        fn from(value: &DbfsAttr) -> Self {
+            FileAttr {
+                ino: value.ino as u64,
+                size: value.size as u64,
+                blocks: value.blocks as u64,
+                atime: SystemTime::from(value.atime),
+                mtime: SystemTime::from(value.mtime),
+                ctime: SystemTime::from(value.ctime),
+                crtime: SystemTime::from(value.crtime),
+                kind: value.kind.into(),
+                perm: value.perm & 0o777,
+                nlink: value.nlink,
+                uid: value.uid,
+                gid: value.gid,
+                rdev: value.rdev,
+                blksize: value.blksize,
+                flags: 0,
+            }
+        }
+    }
+
 }
 
 #[cfg(feature = "rvfs")]
