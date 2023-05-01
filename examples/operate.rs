@@ -1,5 +1,5 @@
 use dbfs2::extend::{execute_operate, extend_create_global_bucket, show_dbfs};
-use dbfs2::init_dbfs;
+use dbfs2::{init_dbfs, SLICE_SIZE};
 use dbop::{
     add_key, make_operate_set, read_key, AddBucketOperate, AddKeyOperate, DeleteKeyOperate,
     Operate, OperateSet, ReadOperate, RenameKeyOperate, StepIntoOperate,
@@ -14,7 +14,7 @@ fn init_db(db: &DB) {
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 0usize.to_le_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_le_bytes()).unwrap();
-    bucket.put("blk_size", 512u32.to_le_bytes()).unwrap();
+    bucket.put("blk_size", (SLICE_SIZE as u32).to_le_bytes()).unwrap();
     tx.commit().unwrap()
 }
 

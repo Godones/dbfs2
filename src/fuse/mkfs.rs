@@ -9,7 +9,7 @@ use core::fmt::Display;
 
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
-use crate::init_dbfs;
+use crate::{init_dbfs, SLICE_SIZE};
 use downcast::_std::io::{Read, Seek, Write};
 use downcast::_std::println;
 use downcast::_std::time::SystemTime;
@@ -231,7 +231,7 @@ pub fn init_db(db: &DB, size: u64) {
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 0usize.to_be_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
-    bucket.put("blk_size", 512u32.to_be_bytes()).unwrap();
+    bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
     bucket.put("disk_size", size.to_be_bytes()).unwrap(); //16MB
     tx.commit().unwrap()
 }

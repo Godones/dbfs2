@@ -83,7 +83,7 @@ fn init_db(db: &DB) {
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 0usize.to_be_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
-    bucket.put("blk_size", 512u32.to_be_bytes()).unwrap();
+    bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
     tx.commit().unwrap()
 }
 

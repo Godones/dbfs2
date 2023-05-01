@@ -1,4 +1,4 @@
-use dbfs2::DBFS;
+use dbfs2::{DBFS, SLICE_SIZE};
 use jammdb::memfile::{FakeMap, FileOpenOptions};
 use jammdb::DB;
 use rvfs::dentry::{vfs_rename, vfs_rmdir};
@@ -109,7 +109,7 @@ fn init_db(db: &DB) {
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 1usize.to_be_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
-    bucket.put("blk_size", 512u32.to_be_bytes()).unwrap();
+    bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
     bucket
         .put("disk_size", (1024 * 1024 * 16u64).to_be_bytes())
         .unwrap(); //16MB

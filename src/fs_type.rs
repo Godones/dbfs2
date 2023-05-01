@@ -1,6 +1,6 @@
 use crate::file::DBFS_DIR_FILE_OPS;
 use crate::inode::{permission_from_mode, DBFS_DIR_INODE_OPS, DBFS_INODE_NUMBER};
-use crate::{clone_db, u32, u64, usize};
+use crate::{clone_db, SLICE_SIZE, u32, u64, usize};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::sync::{Arc, Weak};
@@ -165,7 +165,7 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: DbfsTimeSpec) -> DbfsRe
         new_inode.put("atime", ctime.to_be_bytes()).unwrap();
         new_inode.put("mtime", ctime.to_be_bytes()).unwrap();
         new_inode.put("ctime", ctime.to_be_bytes()).unwrap();
-        new_inode.put("block_size", 512u32.to_be_bytes()).unwrap();
+        new_inode.put("block_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
         new_inode.put("next_number", 1u32.to_be_bytes()).unwrap();
         new_inode.put("size", 1usize.to_be_bytes()).unwrap();
 
@@ -222,7 +222,7 @@ pub fn dbfs_common_statfs(
         (disk_size, magic)
     };
 
-    let blk_size = blk_size.unwrap_or(512);
+    let blk_size = blk_size.unwrap_or(SLICE_SIZE as u64);
 
     // TODO! manage the disk_size
 

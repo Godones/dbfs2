@@ -51,22 +51,11 @@ fn fuse() {
         .get_matches();
 
     env_logger::init();
-    // init_dbfs_fuse("./test.dbfs", 64 * 1024 * 1024);
-
     let mountpoint = matches.value_of("MOUNT_POINT").unwrap();
     let mut options = vec![MountOption::FSName("dbfs".to_string())];
     if matches.contains_id("auto_unmount") {
         options.push(MountOption::AutoUnmount);
     }
-    // if matches.is_present("allow-root") {
-    //     options.push(MountOption::AllowRoot);
-    // }
-    // options.push(MountOption::AllowRoot);
-
-    // if matches.contains_id("default_permissions") {
-    //     options.push(MountOption::DefaultPermissions);
-    // }
-
     options.push(MountOption::DefaultPermissions);
 
     let fs = DbfsFuse::new(
@@ -76,6 +65,7 @@ fn fuse() {
     options.push(MountOption::Atime);
     options.push(MountOption::AllowOther);
     options.push(MountOption::RW);
+    options.push(MountOption::Async);
 
     println!("options: {:?}",options);
     fuser::mount2(fs, mountpoint, &options).unwrap();

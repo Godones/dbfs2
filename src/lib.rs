@@ -86,3 +86,16 @@ macro_rules! dbfs_time_spec {
         crate::common::DbfsTimeSpec::from($x)
     };
 }
+
+
+#[cfg(feature = "sli512")]
+pub const SLICE_SIZE:usize = 512;
+
+#[cfg(feature = "sli1k")]
+pub const SLICE_SIZE:usize = 1024;
+
+#[cfg(feature = "sli4k")]
+pub const SLICE_SIZE:usize = 4096;
+
+#[cfg(feature = "sli8k")]
+pub const SLICE_SIZE:usize = 8192;

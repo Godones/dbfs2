@@ -1,4 +1,4 @@
-use crate::{clone_db, u16, u32, usize};
+use crate::{clone_db, SLICE_SIZE, u16, u32, usize};
 use alloc::borrow::ToOwned;
 
 use alloc::string::ToString;
@@ -52,12 +52,12 @@ fn dbfs_file_read(file: Arc<File>, buf: &mut [u8], offset: u64) -> StrResult<usi
 }
 
 /// the file data in dbfs is stored as a set of key-value pairs
-/// * data1: \[u8;512]
-/// * data2: \[u8;512]
+/// * data1: \[u8;SLICE_SIZE]
+/// * data2: \[u8;SLICE_SIZE]
 /// * ....
-/// * datai: \[u8;512]
+/// * datai: \[u8;SLICE_SIZE]
 pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResult<usize> {
-    debug!(
+    warn!(
         "dbfs_common_read ino: {}, offset: {}, buf.len: {}",
         number,
         offset,
@@ -71,27 +71,59 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     if offset >= size as u64 {
         return Ok(0);
     }
-    let mut start_num = offset / 512;
-    // let mut offset = offset % 512;
+
+
+    // TODO! second version
+    let tmp = [0u8; SLICE_SIZE];
+    let mut start_num = offset / SLICE_SIZE as u64;
+    // let mut offset = offset % SLICE_SIZE as u64;
+    // let mut count = 0;
+    // loop {
+    //     let key = generate_data_key(start_num as u32);
+    //     let value = bucket.get_kv(key);
+    //     let real_size = min(size - start_num as usize * SLICE_SIZE, SLICE_SIZE);
+    //     if value.is_none(){
+    //         // copy tmp buf to buf
+    //         let len = min(buf.len() - count, real_size.saturating_sub(offset as usize));
+    //         buf[count..count + len].copy_from_slice(&tmp[offset as usize..offset as usize + len]);
+    //         count += len;
+    //         offset  = (offset + len as u64) % SLICE_SIZE as u64;
+    //     }else {
+    //         let value = value.unwrap();
+    //         let value = value.value();
+    //         let len = min(buf.len() - count, real_size.saturating_sub(offset as usize));
+    //         buf[count..count + len].copy_from_slice(&value[offset as usize..offset as usize + len]);
+    //         count += len;
+    //         offset  = (offset + len as u64) % SLICE_SIZE as u64;
+    //     }
+    //     if count == buf.len() || count == size {
+    //         break;
+    //     }
+    //     start_num += 1;
+    // }
+
+
+    // TODO! first version
+    // let mut offset = offset % SLICE_SIZE as u64;
     let mut buf_offset = 0;
-    let end_num = (offset + buf.len() as u64) / 512 + 1;
-    let f_end_num = size / 512 + 1;
+    let end_num = (offset + buf.len() as u64) / SLICE_SIZE as u64 + 1;
+    let f_end_num = size / SLICE_SIZE + 1;
+
     let end_num = min(end_num, f_end_num as u64);
+
+    warn!(
+        "start_num: {:?}, end_num: {:?}, file_end_num:{:?}",start_num,end_num,f_end_num
+    );
 
     let start_key = generate_data_key(start_num as u32);
     let end_key = generate_data_key(end_num as u32);
 
-    warn!(
-        "start_key: {:?}, end_key: {:?}",
-        start_key.as_slice(),
-        end_key.as_slice()
-    );
+
     let range = Range {
         start: start_key.as_slice(),
         end: end_key.as_slice(),
     };
     let iter = bucket.range(range);
-    let tmp = [0u8; 512];
     for data in iter {
         match data {
             Data::Bucket(_) => {
@@ -100,15 +132,15 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
             Data::KeyValue(kv) => {
                 let value = kv.value();
                 let key = kv.key();
-                warn!("key: {:?}", key);
+
                 let index = key.splitn(2, |c| *c == b':').nth(1).unwrap();
                 let index = u32!(index);
-
+                debug!("key: {:?}", index);
                 if index as u64 != start_num {
                     for i in start_num as u32..index {
-                        let current_size = i as usize * 512; // offset = 1000 ,current_size >= 512,1024 => offset= 1000 - 512 = 488
-                        let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,512)范围
-                        let real_size = min(size - current_size, 512);
+                        let current_size = i as usize * SLICE_SIZE; // offset = 1000 ,current_size >= SLICE_SIZE,1024 => offset= 1000 - SLICE_SIZE = 488
+                        let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,SLICE_SIZE)范围
+                        let real_size = min(size - current_size, SLICE_SIZE);
                         let len = min(
                             buf.len() - buf_offset,
                             real_size.saturating_sub(value_offset),
@@ -119,9 +151,9 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
                     }
                     start_num = index as u64 + 1;
                 }
-                let current_size = index as usize * 512; // offset = 1000 ,current_size >= 512,1024 => offset= 1000 - 512 = 488
-                let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,512)范围
-                let real_size = min(size - current_size, 512);
+                let current_size = index as usize * SLICE_SIZE; // offset = 1000 ,current_size >= SLICE_SIZE,1024 => offset= 1000 - SLICE_SIZE = 488
+                let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,SLICE_SIZE)范围
+                let real_size = min(size - current_size, SLICE_SIZE);
                 let len = min(
                     buf.len() - buf_offset,
                     real_size.saturating_sub(value_offset),
@@ -130,7 +162,7 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
                     .copy_from_slice(&value[value_offset..value_offset + len]);
                 buf_offset += len;
                 start_num += 1;
-                warn!("read len: {}", len);
+                debug!( "read len: {}", len);
             }
         }
         if buf_offset == buf.len() {
@@ -138,17 +170,20 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
         }
     }
     Ok(buf_offset)
+
+
+   // Ok(count)
 }
 
 /// we need think about how to write data to dbfs
-/// * data1: \[u8;512]
-/// * data2: \[u8;512]
+/// * data1: \[u8;SLICE_SIZE]
+/// * data2: \[u8;SLICE_SIZE]
 /// * ....
-/// * datai: \[u8;512]
-/// the i should be u32, because we can store 2^32 * 512 bytes in dbfs, == 2048 GB
+/// * datai: \[u8;SLICE_SIZE]
+/// the i should be u32, because we can store 2^32 * SLICE_SIZE bytes in dbfs, == 2048 GB
 /// u32 == 4 bytes, 0x00000000 - 0xffffffff
 pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<usize> {
-    debug!(
+    warn!(
         "dbfs_common_write ino: {}, offset: {}, buf.len: {}",
         number,
         offset,
@@ -160,8 +195,8 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let size = bucket.get_kv("size").unwrap();
     let size = usize!(size.value());
     let o_offset = offset;
-    let mut num = offset / 512;
-    let mut offset = offset % 512;
+    let mut num = offset / SLICE_SIZE as u64;
+    let mut offset = offset % SLICE_SIZE as u64;
     let mut count = 0;
     loop {
         let key = generate_data_key(num as u32);
@@ -171,15 +206,15 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
             kv.unwrap().value().to_owned()
         } else {
             // the new data
-            [0; 512].to_vec()
+            [0; SLICE_SIZE].to_vec()
         };
         // if offset as usize > data.len() {
         //     data.resize(offset as usize, 0);
         // }
-        let len = min(buf.len() - count, 512 - offset as usize);
+        let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
         data[offset as usize..offset as usize + len].copy_from_slice(&buf[count..count + len]);
         count += len;
-        offset = (offset + len as u64) % 512;
+        offset = (offset + len as u64) % SLICE_SIZE as u64;
         num += 1;
         bucket.put(key, data).unwrap();
         if count == buf.len() {

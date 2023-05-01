@@ -1,6 +1,6 @@
 use crate::attr::clear_suid_sgid;
 use crate::file::{DBFS_DIR_FILE_OPS, DBFS_FILE_FILE_OPS, DBFS_SYMLINK_FILE_OPS};
-use crate::{clone_db, dbfs_time_spec, u16, u32, u64, usize};
+use crate::{clone_db, dbfs_time_spec, SLICE_SIZE, u16, u32, u64, usize};
 use alloc::borrow::ToOwned;
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -669,7 +669,7 @@ pub fn dbfs_common_create(
     new_inode.put("mtime", c_time.to_be_bytes())?;
     new_inode.put("ctime", c_time.to_be_bytes())?;
 
-    new_inode.put("block_size", 512u32.to_be_bytes())?;
+    new_inode.put("block_size", (SLICE_SIZE as u32).to_be_bytes())?;
     if permission.contains(DbfsPermission::S_IFLNK) {
         new_inode.put("data", target_path.unwrap())?;
     }
@@ -739,14 +739,14 @@ pub fn dbfs_common_truncate(
     let db = clone_db();
     let tx = db.tx(true)?;
     let bucket = tx.get_bucket(ino.to_be_bytes()).unwrap();
-    let start = f_size / 512;
-    let offset = f_size % 512;
+    let start = f_size / SLICE_SIZE;
+    let offset = f_size % SLICE_SIZE;
 
     let current_size = attr.size;
     // if current file size < f_size, allocate new blocks
     // if current file size > f_size, free blocks
 
-    let current_block = current_size / 512;
+    let current_block = current_size / SLICE_SIZE;
     if current_block < start {
         // We don't need to allocate new blocks
         // When write or read occurs, it will allocate new blocks or ignore
@@ -775,7 +775,7 @@ pub fn dbfs_common_truncate(
             let value = value.unwrap();
             let mut value = value.value().to_vec();
             // set the data in offset to 0
-            for i in offset..512 {
+            for i in offset..SLICE_SIZE {
                 value[i] = 0;
             }
             bucket.put(start_key, value).unwrap();
@@ -783,7 +783,7 @@ pub fn dbfs_common_truncate(
         let sb_blk = tx.get_bucket("super_blk".as_bytes()).unwrap();
         let disk_size = sb_blk.get_kv("disk_size").unwrap();
         let disk_size = u64!(disk_size.value());
-        let additional_size = (current_block - start) * 512; // 1 - 0
+        let additional_size = (current_block - start) * SLICE_SIZE; // 1 - 0
         let new_disk_size = disk_size + additional_size as u64;
         sb_blk.put("disk_size", new_disk_size.to_be_bytes())?;
     }
@@ -898,9 +898,9 @@ pub fn dbfs_common_fallocate(
     }
 
     let f_size = offset + size;
-    let start = f_size / 512;
+    let start = f_size / SLICE_SIZE;
     let current_size = i_size;
-    let current_block = i_size / 512;
+    let current_block = i_size / SLICE_SIZE;
     if current_block < start {
         // We don't need to allocate new blocks
         // When write or read occurs, it will allocate new blocks or ignore
