@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 output_path = "./result/mdtest-opt/mdtest-opt.svg"
 
 
-def draw(data1: list, data2: list, data3: list):
+def draw(data0:list,data1: list, data2: list, data3: list):
     operations = ["Dir\ncreate", "Dir\nstat", "Dir\nrename", "Dir\nremove", "File\ncreate",
                   "File\nstat", "File\nread", "File\nremove", "Tree\ncreate", "Tree\nremove"]
 
@@ -17,10 +17,12 @@ def draw(data1: list, data2: list, data3: list):
     x1 = x
     x2 = [i + width for i in x]
     x3 = [i + width * 2 for i in x]
+    x4 = [i + width * 3 for i in x]
 
-    plt.bar(x1, data1, width=width, label="opt1")
-    plt.bar(x2, data2, width=width, label="opt2")
-    plt.bar(x3, data3, width=width, label="opt3")
+    plt.bar(x1, data0, width=width, label="opt0")
+    plt.bar(x2, data1, width=width, label="opt1")
+    plt.bar(x3, data2, width=width, label="opt2")
+    plt.bar(x4, data3, width=width, label="opt3")
 
     # 设置横坐标
     operations = ["Dir\ncreate", "Dir\nstat", "Dir\nrename", "Dir\nremove", "File\ncreate",
@@ -74,8 +76,9 @@ if __name__ == '__main__':
         12345 + 9345 + 8736,
         14313 + 14266 + 14606,
     ]
-
+    data0 = [831, 163587, 735, 898, 830, 171909, 29286, 891, 732, 804]
     # average
+
     data1 = [i / 3 for i in data1]
     data2 = [i / 3 for i in data2]
     data3 = [i / 3 for i in data3]
@@ -83,4 +86,4 @@ if __name__ == '__main__':
     print(data1)
     print(data2)
     print(data3)
-    draw(data1, data2, data3)
+    draw(data0,data1, data2, data3)
