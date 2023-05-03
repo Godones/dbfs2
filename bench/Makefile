@@ -169,3 +169,30 @@ fio_rand_read:
 clean:
 	$(foreach fs, $(MOUNT_POINT),sudo rm $(fs)/* -rf;)
 
+
+mdtest-sig:
+	@sudo mdtest -d $(DBFS_MOUNT_POINT) -b 6 -I 8 -z 2
+	@echo "dbfs done"
+
+
+fio_seq_write_sig:
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=write --bs=1m --size=1g --numjobs=1 --direct=1 --group_reporting
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=write --bs=1m --size=512m --numjobs=2 --direct=1 --group_reporting
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=write --bs=1m --size=256m --numjobs=4 --direct=1 --group_reporting
+
+
+fio_seq_read_sig:
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=read --bs=1m --size=1g --numjobs=1 --direct=1 --group_reporting
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=read --bs=1m --size=512m --numjobs=2 --direct=1 --group_reporting
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=read --bs=1m --size=256m --numjobs=4 --direct=1 --group_reporting
+
+fio_rand_write_sig:
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=randwrite --bs=1m --size=1g --numjobs=1 --direct=1 --group_reporting
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=randwrite --bs=1m --size=512m --numjobs=2 --direct=1 --group_reporting
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=randwrite --bs=1m --size=256m --numjobs=4 --direct=1 --group_reporting
+
+
+fio_rand_read_sig:
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=randread --bs=1m --size=1g --numjobs=1 --direct=1 --group_reporting
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=randread --bs=1m --size=512m --numjobs=2 --direct=1 --group_reporting
+	@sudo fio --name=dbfs --directory=$(DBFS_MOUNT_POINT)  --rw=randread --bs=1m --size=256m --numjobs=4 --direct=1 --group_reporting
