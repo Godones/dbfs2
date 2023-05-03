@@ -57,6 +57,7 @@ impl <const S:usize> OpenOption for MyOpenOptions<S> {
             .create(self.create)
             .open(path.to_string())
             .unwrap();
+        file.set_len(S as u64).unwrap();
         Ok(File::new(Box::new(FakeFile::new(file))))
     }
 
@@ -78,9 +79,11 @@ pub struct FakeFile {
 
 impl FakeFile {
     pub fn new(file: std::fs::File) -> Self {
+        let meta = file.metadata().unwrap();
+        let size = meta.len();
         FakeFile {
             file,
-            size:0,
+            size:size as usize
         }
     }
 }
@@ -113,6 +116,7 @@ impl core2::io::Write for FakeFile {
             .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "write error"))
     }
 
+    /// TODO: The first place for update
     fn flush(&mut self) -> core2::io::Result<()> {
         // self.file
         //     .flush()
@@ -126,10 +130,24 @@ impl FileExt for FakeFile {
         Ok(())
     }
 
+    /// TODO: The second place for update
     fn allocate(&mut self, new_size: u64) -> IOResult<()> {
-        self.file
-            .set_len(new_size)
-            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"))
+        // self.file
+        //     .set_len(new_size)
+        //     .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"))
+        if self.size > new_size as usize{
+            return Ok(())
+        }else {
+            panic!("Don't need allocate");
+            let res =
+            self.file
+                .set_len(new_size)
+                .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"));
+            if res.is_ok(){
+                self.size = new_size as usize
+            }
+            res
+        }
     }
 
     fn unlock(&self) -> IOResult<()> {
@@ -145,6 +163,8 @@ impl FileExt for FakeFile {
         Ok(meta)
     }
 
+
+    /// TODO: The first place for update
     fn sync_all(&self) -> IOResult<()> {
         // self.file
         //     .sync_all()
@@ -154,10 +174,7 @@ impl FileExt for FakeFile {
 
     /// no meaning
     fn size(&self) -> usize {
-        self.file
-            .metadata()
-            .unwrap()
-            .len() as usize
+        self.size
     }
 
     /// no meaning
