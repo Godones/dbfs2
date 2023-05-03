@@ -11,7 +11,7 @@ use dbfs2::fuse::mkfs::{FakeMMap, MyOpenOptions};
 fn main() {
     env_logger::init();
     // let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database.db").unwrap();
-    let db = DB::open::<MyOpenOptions<0>, _>(Arc::new(FakeMMap), "my-database.db").unwrap(); // TODO: error handling
+    let db = DB::open::<MyOpenOptions<{ 512 * 1024 * 1024 }>, _>(Arc::new(FakeMMap), "my-database.db").unwrap(); // TODO: error handling
 
     init_db(&db);
     dbfs2::init_dbfs(db);

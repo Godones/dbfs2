@@ -7,6 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::{max, min};
 use core::ops::Range;
+use downcast::_std::println;
 use jammdb::Data;
 use log::{debug, error, warn};
 
@@ -58,10 +59,11 @@ fn dbfs_file_read(file: Arc<File>, buf: &mut [u8], offset: u64) -> StrResult<usi
 /// * datai: \[u8;SLICE_SIZE]
 pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResult<usize> {
     warn!(
-        "dbfs_common_read ino: {}, offset: {}, buf.len: {}",
+        "dbfs_common_read ino: {}, offset: {}, buf.len: {}, slice_size:{}",
         number,
         offset,
-        buf.len()
+        buf.len(),
+        SLICE_SIZE
     );
     let db = clone_db();
     let tx = db.tx(false)?;

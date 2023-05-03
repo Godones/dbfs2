@@ -21,7 +21,7 @@ use jammdb::{
 use rvfs::warn;
 use std::fs::OpenOptions;
 use std::path::Path;
-use spin::{Mutex, RwLock};
+use spin::{Mutex, Once, RwLock};
 use std::thread::{self, Thread,JoinHandle};
 
 pub struct MyOpenOptions<const S:usize>{
@@ -204,23 +204,31 @@ impl PathLike for FakePath {
 
 pub struct FakeMMap;
 
+
 struct IndexByPageIDImpl {
     map: memmap2::Mmap,
 }
+
+static MMAP:Once<Arc<IndexByPageIDImpl>> = Once::new();
+
 impl MemoryMap for FakeMMap {
     fn do_map(&self, file: &mut File) -> IOResult<Arc<dyn IndexByPageID>> {
-        let file = &file.file;
-        let fake_file = file.downcast_ref::<FakeFile>().unwrap();
-        let res = mmap(&fake_file.file, false);
-        if res.is_err() {
-            warn!("mmap res: {:?}", res);
-            return Err(core2::io::Error::new(
-                core2::io::ErrorKind::Other,
-                "not support",
-            ));
+        if !MMAP.is_completed(){
+            let file = &file.file;
+            let fake_file = file.downcast_ref::<FakeFile>().unwrap();
+            let res = mmap(&fake_file.file, false);
+            if res.is_err() {
+                warn!("mmap res: {:?}", res);
+                return Err(core2::io::Error::new(
+                    core2::io::ErrorKind::Other,
+                    "not support",
+                ));
+            }
+            let map = res.unwrap();
+            let map = Arc::new(IndexByPageIDImpl{map});
+            MMAP.call_once(||map);
         }
-        let map = res.unwrap();
-        Ok(Arc::new(IndexByPageIDImpl { map }))
+        Ok(MMAP.get().unwrap().clone())
     }
 }
 

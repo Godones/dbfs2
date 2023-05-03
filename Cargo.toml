@@ -34,5 +34,5 @@ sli1k = []
 env_logger = "0.9.0"
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 serde = {version = "1.0.136",default-features = false,features = ["derive","alloc"]}
-dbfs2 = {path = "../dbfs2",default-features = false,features = ["fuse","rvfs","sli512"]}
+dbfs2 = {path = "../dbfs2",default-features = false,features = ["fuse","rvfs","sli4k"]}
 clap = { version = "3.0", features = ["cargo"] }
