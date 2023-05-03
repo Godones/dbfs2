@@ -25,7 +25,6 @@ fn main() {
     println!("file1:{file:#?}");
     let _db = do_mount::<FakeFSC>("block", "/db", "dbfs", MountFlags::empty(), None).unwrap();
     // println!("db mnt:{:#?}", db);
-
     let f1_file = vfs_open_file::<FakeFSC>(
         "/db/f1",
         OpenFlags::O_RDWR | OpenFlags::O_CREAT,
@@ -33,20 +32,9 @@ fn main() {
     )
     .unwrap();
 
-    println!("write to file 1MB");
-    let mut buf = [0; 1024];
-    for i in 0..1024 {
-        buf[i] = i as u8;
-    }
-    for i in 0..1 {
-        vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, i * 1024).unwrap();
-    }
-    // let res = vfs_llseek(f1_file.clone(),SeekFrom::Start(0)).unwrap();
-    // println!("seek to 0, res:{}",res);
-    let mut read_buf = [0; 1024];
-    let read = vfs_read_file::<FakeFSC>(f1_file, &mut read_buf, 0).unwrap();
-    println!("read:{read}");
-    assert_eq!(buf, read_buf);
+    println!("write to file 128MB");
+    // let buf: Vec<u8>
+
 }
 fn init_db(db: &DB) {
     let tx = db.tx(true).unwrap();

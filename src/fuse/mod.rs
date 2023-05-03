@@ -8,6 +8,7 @@ extern crate std;
 
 use alloc::sync::Arc;
 use alloc::vec;
+use alloc::vec::Vec;
 use downcast::_std::path::Path;
 use downcast::_std::println;
 use downcast::_std::time::SystemTime;
@@ -40,6 +41,9 @@ pub use mkfs::init_dbfs_fuse;
 const TTL: Duration = Duration::from_secs(1); // 1 second
                                               // const FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
 const FILE_SIZE: u64 = 9999999999999999;
+
+const MAX_BUF_SIZE:usize = 1024*1024*2; // 2MB
+
 
 pub struct DbfsFuse {
     direct_io: bool,
@@ -354,7 +358,7 @@ impl Filesystem for DbfsFuse {
         let mut data = vec![0u8; size as usize];
         let res = dbfs_fuse_read(ino, offset, data.as_mut_slice());
         match res {
-            Ok(_) => reply.data(data.as_slice()),
+            Ok(x) => reply.data(data[..x].as_ref()),
             Err(_) => reply.error(ENOENT),
         }
     }
