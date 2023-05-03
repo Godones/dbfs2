@@ -35,12 +35,13 @@ use crate::fuse::attr::{
 };
 use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, dbfs_fuse_unlink};
 use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions};
-use crate::init_dbfs;
+use crate::{init_dbfs, u64};
 pub use mkfs::init_dbfs_fuse;
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
                                               // const FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
-const FILE_SIZE: u64 = 9999999999999999;
+// const FILE_SIZE: u64 = 9999999999999999;
+const FILE_SIZE:usize = 1024*1024*1024*4; // 4GB
 
 const MAX_BUF_SIZE:usize = 1024*1024*2; // 2MB
 
@@ -74,8 +75,8 @@ impl DbfsFuse {
 impl Filesystem for DbfsFuse {
     fn init(&mut self, _req: &Request<'_>, _config: &mut KernelConfig) -> Result<(), c_int> {
         let path = "./test.dbfs";
-        let db = DB::open::<MyOpenOptions, _>(Arc::new(FakeMMap), path).map_err(|_| -1)?; // TODO: error handling
-        init_db(&db, FILE_SIZE);
+        let db = DB::open::<MyOpenOptions<FILE_SIZE>, _>(Arc::new(FakeMMap), path).map_err(|_| -1)?; // TODO: error handling
+        init_db(&db, FILE_SIZE as u64);
         test_dbfs(&db);
         init_dbfs(db);
         let uid = unsafe { libc::getuid() };

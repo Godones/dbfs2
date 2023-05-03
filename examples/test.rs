@@ -1,47 +1,61 @@
-use jammdb::memfile::{FakeMap, FileOpenOptions};
-use jammdb::{Data, DB};
-
-use std::ops::Range;
+use std::fs::{File, OpenOptions};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::thread::{self, JoinHandle, Thread};
+use spin::Mutex;
+
+
+
+static FLAG:AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug)]
+pub struct FakeFile{
+    file: Arc<Mutex<File>>,
+    size: usize,
+    thread:Option<JoinHandle<()>>
+}
+
+impl Drop for FakeFile{
+    fn drop(&mut self) {
+        FLAG.store(true,std::sync::atomic::Ordering::Relaxed);
+        self.thread.take().unwrap().join().unwrap();
+        println!("Thread is over");
+    }
+}
+
+
+impl  FakeFile{
+    pub fn new(file:Arc<Mutex<File>>) -> Self {
+        let meta = file.lock().metadata().unwrap();
+        let size = meta.len() as usize;
+        let file_t = file.clone();
+        let thread = thread::spawn( || {
+            let file = file_t;
+            while !FLAG.load(std::sync::atomic::Ordering::Relaxed) {
+                let meta = file.lock().metadata().unwrap();
+                println!("The file size is {}",meta.len());
+                thread::sleep(std::time::Duration::from_secs(1));
+            }
+        });
+        FakeFile {
+            file:file.clone(),
+            size,
+            thread:Some(thread),
+        }
+    }
+}
+
 
 fn main() {
-    let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database.db").unwrap();
-    let tx = db.tx(true).unwrap();
-    let bucket = tx.create_bucket("file").unwrap();
-    for i in 0..100 {
-        let key = generate_datakey(i);
-        let value = format!("value{i}");
-        bucket.put(key, value.as_bytes().to_owned()).unwrap();
-    }
-    let start_key = generate_datakey(10);
-    let end_key = generate_datakey(20);
-    let rang = Range {
-        start: start_key.as_slice(),
-        end: end_key.as_slice(),
-    };
-    bucket.range(rang).for_each(|x| match x {
-        Data::Bucket(x) => {
-            println!("bucket: {x:?}")
-        }
-        Data::KeyValue(x) => {
-            println!("keyvalue: {x:?}")
-        }
-    });
-    let d_bucket = tx.create_bucket("dir").unwrap();
-    d_bucket.put("dir1", "dir1").unwrap();
-    d_bucket.put("dir2", "dir2").unwrap();
-    let t_bucket = tx.get_bucket("dir").unwrap();
-    t_bucket.delete("dir1").unwrap();
-    tx.commit().unwrap();
-
-    let tx = db.tx(false).unwrap();
-    let bucket = tx.get_bucket("dir").unwrap();
-    let value = bucket.get("dir1");
-    println!("{value:?}");
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open("test.txt")
+        .unwrap();
+    file.set_len(1024*1024*128).unwrap();
+    let file = Arc::new(Mutex::new(file));
+    let fake_file = FakeFile::new(file);
+    thread::sleep(std::time::Duration::from_secs(10));
 }
 
-fn generate_datakey(num: u32) -> Vec<u8> {
-    let mut datakey = b"data".to_vec();
-    datakey.extend_from_slice(&num.to_be_bytes());
-    datakey
-}

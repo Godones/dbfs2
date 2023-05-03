@@ -31,10 +31,17 @@ fn main() {
         FileMode::FMODE_WRITE,
     )
     .unwrap();
-
     println!("write to file 128MB");
-    // let buf: Vec<u8>
+    let mut buf_read: Vec<u8> = vec![1u8; 1024 * 1024 * 128];
+    // rand data
+    let buf: Vec<u8> = (0..1024 * 1024 * 128).map(|_| rand::random::<u8>()).collect();
+    let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, 0).unwrap();
+    println!("write res:{:#?}", res);
+    assert_eq!(res, buf.len());
 
+    let read = vfs_read_file::<FakeFSC>(f1_file, &mut buf_read, 0).unwrap();
+    println!("read res:{:#?}", read);
+    assert_eq!(read, buf.len());
 }
 fn init_db(db: &DB) {
     let tx = db.tx(true).unwrap();

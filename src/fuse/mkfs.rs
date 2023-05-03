@@ -6,6 +6,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use core::fmt::Display;
+use core::sync::atomic::AtomicBool;
 
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
@@ -20,18 +21,22 @@ use jammdb::{
 use rvfs::warn;
 use std::fs::OpenOptions;
 use std::path::Path;
+use spin::{Mutex, RwLock};
+use std::thread::{self, Thread,JoinHandle};
 
-pub struct MyOpenOptions {
+pub struct MyOpenOptions<const S:usize>{
     read: bool,
     write: bool,
     create: bool,
+    size: usize,
 }
-impl OpenOption for MyOpenOptions {
+impl <const S:usize> OpenOption for MyOpenOptions<S> {
     fn new() -> Self {
         MyOpenOptions {
             read: false,
             write: false,
             create: false,
+            size: S,
         }
     }
 
@@ -61,16 +66,48 @@ impl OpenOption for MyOpenOptions {
     }
 }
 
+
+static FLAG:AtomicBool = AtomicBool::new(false);
+static mut DIRTY:bool = false;
+
+
 pub struct FakeFile {
-    file: std::fs::File,
+    file:  std::fs::File,
     size: usize,
 }
 
 impl FakeFile {
     pub fn new(file: std::fs::File) -> Self {
-        FakeFile { file, size: 0 }
+        // let file = Arc::new(Mutex::new(file));
+        // let file_t = file.clone();
+        // let thread = thread::spawn( || {
+        //     let file = file_t;
+        //     while !FLAG.load(std::sync::atomic::Ordering::Relaxed) {
+        //         let dirty = unsafe { DIRTY };
+        //         if dirty {
+        //             println!("The file is dirty");
+        //             file.lock().flush().unwrap();
+        //             file.lock().sync_all().unwrap();
+        //             unsafe { DIRTY = false };
+        //         }
+        //         thread::sleep(std::time::Duration::from_secs(1));
+        //     }
+        // });
+        FakeFile {
+            file,
+            size:0,
+            // thread:Some(thread),
+        }
     }
 }
+
+// impl Drop for FakeFile {
+//     fn drop(&mut self) {
+//         FLAG.store(true,std::sync::atomic::Ordering::Relaxed);
+//         self.thread.take().unwrap().join().unwrap();
+//     }
+// }
+
 
 impl core2::io::Seek for FakeFile {
     fn seek(&mut self, pos: core2::io::SeekFrom) -> core2::io::Result<u64> {
@@ -100,9 +137,13 @@ impl core2::io::Write for FakeFile {
     }
 
     fn flush(&mut self) -> core2::io::Result<()> {
-        self.file
-            .flush()
-            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "flush error"))
+        // self.file.lock()
+        //     .flush()
+        //     .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "flush error"))
+        unsafe {
+            DIRTY = true;
+        }
+        Ok(())
     }
 }
 
@@ -131,14 +172,21 @@ impl FileExt for FakeFile {
     }
 
     fn sync_all(&self) -> IOResult<()> {
-        self.file
-            .sync_all()
-            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "sync_all error"))
+        // self.file.lock()
+        //     .sync_all()
+        //     .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "sync_all error"))
+        unsafe {
+            DIRTY = true;
+        }
+        Ok(())
     }
 
     /// no meaning
     fn size(&self) -> usize {
-        self.file.metadata().unwrap().len() as usize
+        self.file
+            .metadata()
+            .unwrap()
+            .len() as usize
     }
 
     /// no meaning
@@ -176,7 +224,6 @@ impl MemoryMap for FakeMMap {
         let file = &file.file;
         let fake_file = file.downcast_ref::<FakeFile>().unwrap();
         let res = mmap(&fake_file.file, false);
-
         if res.is_err() {
             warn!("mmap res: {:?}", res);
             return Err(core2::io::Error::new(
@@ -214,9 +261,11 @@ impl IndexByPageID for IndexByPageIDImpl {
     }
 }
 
+
 pub fn init_dbfs_fuse<T: AsRef<Path>>(path: T, size: u64) {
+    use super::FILE_SIZE;
     let path = path.as_ref().to_str().unwrap();
-    let db = DB::open::<MyOpenOptions, _>(Arc::new(FakeMMap), path).unwrap();
+    let db = DB::open::<MyOpenOptions<FILE_SIZE>, _>(Arc::new(FakeMMap), path).unwrap();
     init_db(&db, size);
     test_dbfs(&db);
     init_dbfs(db);
