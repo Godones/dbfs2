@@ -2,7 +2,7 @@ pub mod attr;
 pub mod file;
 pub mod inode;
 pub mod link;
-mod mkfs;
+pub mod mkfs;
 
 extern crate std;
 

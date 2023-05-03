@@ -2,3 +2,5 @@
 /Cargo.lock
 .idea
 test.dbfs
+my-database.db
+*.txt

@@ -6,10 +6,13 @@ use rvfs::mount::{do_mount, MountFlags};
 use rvfs::superblock::register_filesystem;
 use rvfs::{init_process_info, FakeFSC};
 use std::sync::Arc;
+use dbfs2::fuse::mkfs::{FakeMMap, MyOpenOptions};
 
 fn main() {
     env_logger::init();
-    let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database.db").unwrap();
+    // let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database.db").unwrap();
+    let db = DB::open::<MyOpenOptions<0>, _>(Arc::new(FakeMMap), "my-database.db").unwrap(); // TODO: error handling
+
     init_db(&db);
     dbfs2::init_dbfs(db);
     let mnt = rvfs::mount_rootfs();

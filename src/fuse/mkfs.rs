@@ -78,35 +78,12 @@ pub struct FakeFile {
 
 impl FakeFile {
     pub fn new(file: std::fs::File) -> Self {
-        // let file = Arc::new(Mutex::new(file));
-        // let file_t = file.clone();
-        // let thread = thread::spawn( || {
-        //     let file = file_t;
-        //     while !FLAG.load(std::sync::atomic::Ordering::Relaxed) {
-        //         let dirty = unsafe { DIRTY };
-        //         if dirty {
-        //             println!("The file is dirty");
-        //             file.lock().flush().unwrap();
-        //             file.lock().sync_all().unwrap();
-        //             unsafe { DIRTY = false };
-        //         }
-        //         thread::sleep(std::time::Duration::from_secs(1));
-        //     }
-        // });
         FakeFile {
             file,
             size:0,
-            // thread:Some(thread),
         }
     }
 }
-
-// impl Drop for FakeFile {
-//     fn drop(&mut self) {
-//         FLAG.store(true,std::sync::atomic::Ordering::Relaxed);
-//         self.thread.take().unwrap().join().unwrap();
-//     }
-// }
 
 
 impl core2::io::Seek for FakeFile {
@@ -137,12 +114,9 @@ impl core2::io::Write for FakeFile {
     }
 
     fn flush(&mut self) -> core2::io::Result<()> {
-        // self.file.lock()
+        // self.file
         //     .flush()
         //     .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "flush error"))
-        unsafe {
-            DIRTY = true;
-        }
         Ok(())
     }
 }
@@ -172,12 +146,9 @@ impl FileExt for FakeFile {
     }
 
     fn sync_all(&self) -> IOResult<()> {
-        // self.file.lock()
+        // self.file
         //     .sync_all()
         //     .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "sync_all error"))
-        unsafe {
-            DIRTY = true;
-        }
         Ok(())
     }
 
