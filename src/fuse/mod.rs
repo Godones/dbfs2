@@ -621,19 +621,19 @@ impl Filesystem for DbfsFuse {
     //
     // }
 
-    fn ioctl(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _flags: u32,
-        _cmd: u32,
-        _in_data: &[u8],
-        _out_size: u32,
-        reply: ReplyIoctl,
-    ) {
-        todo!()
-    }
+    // fn ioctl(
+    //     &mut self,
+    //     _req: &Request<'_>,
+    //     _ino: u64,
+    //     _fh: u64,
+    //     _flags: u32,
+    //     _cmd: u32,
+    //     _in_data: &[u8],
+    //     _out_size: u32,
+    //     reply: ReplyIoctl,
+    // ) {
+    //     todo!()
+    // }
 
     // fn lseek(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _offset: i64, _whence: i32, reply: ReplyLseek) {
     //     todo!()

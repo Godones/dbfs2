@@ -112,14 +112,13 @@ pub fn dbfs_common_link(
     let tx = db.tx(true)?;
     let bucket = tx.get_bucket(new_ino.to_be_bytes())?;
 
-    // check if the new dentry exists
     // checkout whether the file is exist
-    let value = bucket.kv_pairs().find(|kv| {
-        kv.key().starts_with("data:".as_bytes()) && kv.value().starts_with(name.as_bytes())
-    });
-    if value.is_some() {
-        return Err(DbfsError::FileExists);
-    }
+    // let value = bucket.kv_pairs().find(|kv| {
+    //     kv.key().starts_with("data:".as_bytes()) && kv.value().starts_with(name.as_bytes())
+    // });
+    // if value.is_some() {
+    //     return Err(DbfsError::FileExists);
+    // }
 
     let next_number = bucket.get_kv("next_number".to_string()).unwrap();
     let next_number = u32!(next_number.value());
@@ -584,12 +583,12 @@ pub fn dbfs_common_create(
     }
 
     // checkout whether the file is exist
-    let value = parent.kv_pairs().find(|kv| {
-        kv.key().starts_with("data:".as_bytes()) && kv.value().starts_with(name.as_bytes())
-    });
-    if value.is_some() {
-        return Err(DbfsError::FileExists);
-    }
+    // let value = parent.kv_pairs().find(|kv| {
+    //     kv.key().starts_with("data:".as_bytes()) && kv.value().starts_with(name.as_bytes())
+    // });
+    // if value.is_some() {
+    //     return Err(DbfsError::FileExists);
+    // }
 
     let size = parent.get_kv("size").unwrap();
     let size = usize!(size.value());
