@@ -8,7 +8,7 @@ def draw(data0:list,data1: list, data2: list, data3: list):
                   "File\nstat", "File\nread", "File\nremove", "Tree\ncreate", "Tree\nremove"]
 
     max_value = max([max(data1), max(data2), max(data3)])
-
+    max_value = max_value + max_value * 0.1
     plt.figure(figsize=(8, 6))
 
     width = 0.2

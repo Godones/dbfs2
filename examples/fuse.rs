@@ -50,7 +50,7 @@ fn fuse() {
         )
         .get_matches();
 
-    // env_logger::init();
+    env_logger::init();
     let mountpoint = matches.value_of("MOUNT_POINT").unwrap();
     let mut options = vec![MountOption::FSName("dbfs".to_string())];
     if matches.contains_id("auto_unmount") {

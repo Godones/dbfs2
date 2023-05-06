@@ -1,25 +1,25 @@
--- started at 05/03/2023 21:22:50 --
+-- started at 05/04/2023 09:09:40 --
 
 mdtest-4.1.0+dev was launched with 1 total task(s) on 1 node(s)
 Command line used: mdtest '-d' './dbfs' '-b' '6' '-I' '8' '-z' '2'
 WARNING: Read bytes is 0, thus, a read test will actually just open/close
 Nodemap: 1
 Path                : ./dbfs
-FS                  : 456.6 GiB   Used FS: 40.0%   Inodes: 29.1 Mi   Used Inodes: 3.5%
+FS                  : 456.6 GiB   Used FS: 45.2%   Inodes: 29.1 Mi   Used Inodes: 3.6%
 1 tasks, 344 files/directories
 
 SUMMARY rate: (of 1 iterations)
    Operation                     Max            Min           Mean        Std Dev
    ---------                     ---            ---           ----        -------
-   Directory creation          11992.391      11992.391      11992.391          0.000
-   Directory stat             189100.993     189100.993     189100.993          0.000
-   Directory rename             6665.776       6665.776       6665.776          0.000
-   Directory removal            8904.994       8904.994       8904.994          0.000
-   File creation                6967.955       6967.955       6967.955          0.000
-   File stat                  252730.877     252730.877     252730.877          0.000
-   File read                   22310.128      22310.128      22310.128          0.000
-   File removal                10491.021      10491.021      10491.021          0.000
-   Tree creation               10994.579      10994.579      10994.579          0.000
-   Tree removal                 2735.720       2735.720       2735.720          0.000
--- finished at 05/03/2023 21:22:51 --
+   Directory creation          10709.126      10709.126      10709.126          0.000
+   Directory stat             310756.101     310756.101     310756.101          0.000
+   Directory rename             9980.014       9980.014       9980.014          0.000
+   Directory removal           14984.480      14984.480      14984.480          0.000
+   File creation                9569.876       9569.876       9569.876          0.000
+   File stat                  247146.382     247146.382     247146.382          0.000
+   File read                   43395.007      43395.007      43395.007          0.000
+   File removal                15395.719      15395.719      15395.719          0.000
+   Tree creation                8452.691       8452.691       8452.691          0.000
+   Tree removal                11807.206      11807.206      11807.206          0.000
+-- finished at 05/04/2023 09:09:41 --
 
