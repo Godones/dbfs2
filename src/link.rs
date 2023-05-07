@@ -1,4 +1,5 @@
-use crate::common::{DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, ACCESS_W_OK};
+use alloc::format;
+use crate::common::{DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, ACCESS_W_OK, generate_data_key};
 use crate::inode::checkout_access;
 use crate::{clone_db, u16, u32, usize};
 use core::cmp::min;
@@ -28,13 +29,15 @@ pub fn dbfs_common_unlink(
     // find the parent dir
     let p_bucket = tx.get_bucket(dir.to_be_bytes())?;
     // check if the name exists
-    let value = p_bucket
-        .kv_pairs()
-        .find(|kv| kv.key().starts_with(b"data") && kv.value().starts_with(name.as_bytes()));
-    if value.is_none() {
-        return Err(DbfsError::NotFound);
-    }
-    let value = value.unwrap();
+    // let value = p_bucket
+    //     .kv_pairs()
+    //     .find(|kv| kv.key().starts_with(b"data") && kv.value().starts_with(name.as_bytes()));
+    // if value.is_none() {
+    //     return Err(DbfsError::NotFound);
+    // }
+    let key = generate_data_key(name);
+    let kv = p_bucket.get_kv(key);
+    let kv = kv.unwrap();
 
     warn!(
         "dbfs_common_unlink(uid:{}, gid:{}, dir:{}, name:{:?}, ino:{:?}, c_time:{})",
@@ -59,13 +62,8 @@ pub fn dbfs_common_unlink(
         let bucket = tx.get_bucket(ino.to_be_bytes())?;
         (bucket, ino)
     } else {
-        let kv = p_bucket.get_kv(value.key()).unwrap();
-        let value = kv.value(); // name:ino
-        let ino = core::str::from_utf8(value)
-            .unwrap()
-            .split(':')
-            .last()
-            .unwrap();
+        let value = kv.value(); // ino
+        let ino = core::str::from_utf8(value).unwrap();
         let ino = ino.parse::<usize>().unwrap();
         let bucket = tx
             .get_bucket(ino.to_be_bytes())
@@ -83,7 +81,7 @@ pub fn dbfs_common_unlink(
     }
 
     // delete the kv pair
-    p_bucket.delete(value.key())?;
+    p_bucket.delete(kv.key())?;
     // update size
     let size = p_bucket.get_kv("size").unwrap();
     let size = usize!(size.value());

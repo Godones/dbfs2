@@ -166,12 +166,11 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: DbfsTimeSpec) -> DbfsRe
         new_inode.put("mtime", ctime.to_be_bytes()).unwrap();
         new_inode.put("ctime", ctime.to_be_bytes()).unwrap();
         new_inode.put("block_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
-        new_inode.put("next_number", 1u32.to_be_bytes()).unwrap();
         new_inode.put("size", 1usize.to_be_bytes()).unwrap();
 
         // insert dot  file
-        let key = generate_data_key(0);
-        new_inode.put(key, ".:1").unwrap();
+        let key = generate_data_key(".");
+        new_inode.put(key, "1").unwrap();
     }
     let bucket = tx.get_bucket(1usize.to_be_bytes())?;
     let count = bucket.get_kv("size").unwrap();

@@ -3,20 +3,19 @@ use alloc::borrow::ToOwned;
 
 use alloc::string::ToString;
 use alloc::sync::Arc;
-use alloc::vec;
+use alloc::{format, vec};
+use alloc::alloc::alloc;
 use alloc::vec::Vec;
+use core::alloc::Layout;
 use core::cmp::{max, min};
 use core::ops::Range;
 use downcast::_std::println;
 use jammdb::Data;
 use log::{debug, error, warn};
 
-use crate::common::{
-    generate_data_key, DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult,
-    DbfsTimeSpec,
-};
+use crate::common::{generate_data_key, DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec, get_readdir_table, generate_data_key_with_number};
 use crate::inode::{checkout_access, dbfs_common_attr};
-use rvfs::dentry::DirContext;
+use rvfs::dentry::{DirContext, DirEntry};
 use rvfs::file::{File, FileOps};
 use rvfs::StrResult;
 
@@ -81,7 +80,7 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     let mut offset = offset % SLICE_SIZE as u64;
     let mut count = 0;
     loop {
-        let key = generate_data_key(start_num as u32);
+        let key = generate_data_key_with_number(start_num as u32);
         let value = bucket.get_kv(key);
         let real_size = min(size - start_num as usize * SLICE_SIZE, SLICE_SIZE);
         if value.is_none(){
@@ -200,25 +199,30 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let mut num = offset / SLICE_SIZE as u64;
     let mut offset = offset % SLICE_SIZE as u64;
     let mut count = 0;
+
     loop {
-        let key = generate_data_key(num as u32);
+        let key = generate_data_key_with_number(num as u32);
         let kv = bucket.get_kv(key.as_slice());
         let mut data = if kv.is_some() {
             // the existed data
-            kv.unwrap().value().to_owned()
+            // kv.unwrap().value().to_owned()
+            kv.as_ref().unwrap().value().as_ptr()
         } else {
-            // the new data
-            [0; SLICE_SIZE].to_vec()
+            // [0; SLICE_SIZE].to_vec()
+            unsafe {
+                alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8))
+            }
         };
-        // if offset as usize > data.len() {
-        //     data.resize(offset as usize, 0);
-        // }
+        let data = unsafe{
+            core::slice::from_raw_parts_mut(data as *mut u8, SLICE_SIZE)
+        };
+
         let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
         data[offset as usize..offset as usize + len].copy_from_slice(&buf[count..count + len]);
         count += len;
         offset = (offset + len as u64) % SLICE_SIZE as u64;
         num += 1;
-        bucket.put(key, data).unwrap();
+        bucket.put(key, &*data).unwrap();
         if count == buf.len() {
             break;
         }
@@ -239,69 +243,81 @@ fn dbfs_readdir(file: Arc<File>) -> StrResult<DirContext> {
     let mut data = vec![];
     bucket.kv_pairs().for_each(|x| {
         if x.key().starts_with("data:".as_bytes()) {
-            let value = x.value();
-            let str = core::str::from_utf8(value).unwrap();
+            let key = x.key();
+            let str = core::str::from_utf8(key).unwrap();
             let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
-            data.extend_from_slice(name[1].as_bytes());
+            data.extend_from_slice(name[0].as_bytes());
             data.push(0);
         }
     });
+
     Ok(DirContext::new(data))
 }
 
 pub fn dbfs_common_readdir(
-    number: usize,
+    ino: usize,
     buf: &mut Vec<DbfsDirEntry>,
     offset: u64,
     is_readdir_plus:bool
 ) -> DbfsResult<usize> {
     let db = clone_db();
     let tx = db.tx(false)?;
-    let bucket = tx.get_bucket(number.to_be_bytes())?;
+    let bucket = tx.get_bucket(ino.to_be_bytes())?;
     buf.clear();
-    let next_number = bucket.get_kv("next_number").unwrap();
-    let next_number = u32!(next_number.value());
     let mut count = 0;
 
-    let start_key = generate_data_key(offset as u32);
-    let end_key = generate_data_key(next_number);
-    let range = Range {
-        start: start_key.as_slice(),
-        end: end_key.as_slice(),
-    };
-
     let buf_len = buf.len();
-    bucket.range(range).for_each(|x| {
+
+    let mut cursor = bucket.cursor();
+    let readdir_info = get_readdir_table(ino);
+    if readdir_info.is_some(){
+        let info = readdir_info.unwrap();
+        let name = info.key;
+        let save_offset = info.offset;
+        assert_eq!(offset,(save_offset as u64 +1));
+        let key = format!("data:{}",name);
+        let res = cursor.seek(key);
+        assert_eq!(res, true);
+        let val = cursor.next();
+        assert!(val.is_some());
+    }
+    let mut offset = offset;
+    cursor.for_each(|x| {
         if let Data::KeyValue(kv) = x {
             let key = kv.key();
-            let key = key.splitn(2, |x| *x == b':').collect::<Vec<&[u8]>>();
-            let key = key[1];
-            let offset = u32!(key);
-            let value = kv.value();
-            let str = core::str::from_utf8(value).unwrap();
-            let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
-            let inode_number = name[0].parse::<usize>().unwrap();
-            let mut entry = DbfsDirEntry::default();
-            entry.name = name[1].to_string();
-            entry.ino = inode_number as u64;
-            entry.offset = offset as u64;
+            if key.starts_with(b"data:"){
+                let key = key.splitn(2, |x| *x == b':').collect::<Vec<&[u8]>>();
+                let name = key[1];
+                let name = core::str::from_utf8(name).unwrap();
+                let value = kv.value();
+                let ino = core::str::from_utf8(value).unwrap();
+                let inode_number = ino.parse::<usize>().unwrap();
+                let mut entry = DbfsDirEntry::default();
+                entry.name = name.to_string();
+                entry.ino = inode_number as u64;
+                entry.offset = offset;
 
-            if !is_readdir_plus{
-                let inode = tx.get_bucket(inode_number.to_be_bytes()).unwrap();
-                let mode = inode.get_kv("mode").unwrap();
-                let mode = u16!(mode.value());
-                let perm = DbfsPermission::from_bits_truncate(mode);
-                entry.kind = DbfsFileType::from(perm);
+                offset += 1;
+                if !is_readdir_plus{
+                    let inode = tx.get_bucket(inode_number.to_be_bytes()).unwrap();
+                    let mode = inode.get_kv("mode").unwrap();
+                    let mode = u16!(mode.value());
+                    let perm = DbfsPermission::from_bits_truncate(mode);
+                    entry.kind = DbfsFileType::from(perm);
+                }else {
+                    let attr = dbfs_common_attr(inode_number).unwrap();
+                    entry.kind = attr.kind;
+                    entry.attr = Some(attr);
+                }
+
+                buf.push(entry);
+                count += 1;
+
+                if buf.len() == buf_len {
+                    return;
+                }
             }else {
-                let attr = dbfs_common_attr(inode_number).unwrap();
-                entry.kind = attr.kind;
-                entry.attr = Some(attr);
-            }
-
-            buf.push(entry);
-            count += 1;
-            if buf.len() == buf_len {
-                return;
+                return
             }
         }
     });

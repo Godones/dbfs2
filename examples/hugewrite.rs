@@ -1,5 +1,5 @@
 use dbfs2::{DBFS, SLICE_SIZE};
-use jammdb::memfile::{FakeMap, FileOpenOptions};
+
 use jammdb::DB;
 use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_read_file, vfs_write_file, FileMode, OpenFlags};
 use rvfs::mount::{do_mount, MountFlags};
@@ -45,6 +45,10 @@ fn main() {
     let read = vfs_read_file::<FakeFSC>(f1_file, &mut buf_read, 0).unwrap();
     println!("read res:{:#?}", read);
     assert_eq!(read, buf.len());
+
+    assert_eq!(buf, buf_read);
+    println!("{:?}",&buf[..10]);
+    println!("{:?}",&buf_read[..10]);
 }
 fn init_db(db: &DB) {
     let tx = db.tx(true).unwrap();

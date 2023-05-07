@@ -20,7 +20,7 @@ use log::{error, info, warn};
 use std::ffi::OsStr;
 use std::time::Duration;
 
-use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_write};
+use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_releasedir, dbfs_fuse_write};
 use crate::fuse::inode::{
     dbfs_fuse_create, dbfs_fuse_fallocate, dbfs_fuse_lookup, dbfs_fuse_mkdir, dbfs_fuse_mknod,
     dbfs_fuse_rename, dbfs_fuse_rmdir, dbfs_fuse_truncate,
@@ -41,7 +41,7 @@ pub use mkfs::init_dbfs_fuse;
 const TTL: Duration = Duration::from_secs(1); // 1 second
                                               // const FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
 // const FILE_SIZE: u64 = 9999999999999999;
-const FILE_SIZE:usize = 1024*1024*1024*4; // 4GB
+const FILE_SIZE:usize = 1024*1024*1024*6; // 4GB
 
 const MAX_BUF_SIZE:usize = 1024*1024*2; // 2MB
 
@@ -403,7 +403,6 @@ impl Filesystem for DbfsFuse {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        error!("release not implemented");
         reply.ok();
     }
 
@@ -461,12 +460,12 @@ impl Filesystem for DbfsFuse {
     fn releasedir(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
+        ino: u64,
         _fh: u64,
         _flags: i32,
         reply: ReplyEmpty,
     ) {
-        warn!("releasedir always ok");
+        dbfs_fuse_releasedir(ino).unwrap();
         reply.ok()
     }
     fn fsyncdir(

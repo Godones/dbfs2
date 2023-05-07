@@ -1,4 +1,4 @@
-use crate::common::{DbfsDirEntry, DbfsError, DbfsResult, DbfsTimeSpec, FMODE_EXEC};
+use crate::common::{DbfsDirEntry, DbfsError, DbfsResult, DbfsTimeSpec, FMODE_EXEC, pop_readdir_table, push_readdir_table, ReadDirInfo};
 use crate::file::{
     dbfs_common_copy_file_range, dbfs_common_open, dbfs_common_read, dbfs_common_readdir,
     dbfs_common_write,
@@ -21,6 +21,12 @@ pub fn dbfs_fuse_write(ino: u64, offset: i64, buf: &[u8]) -> Result<usize, ()> {
     dbfs_common_write(ino as usize, buf, offset as u64).map_err(|_| ())
 }
 
+
+pub fn dbfs_fuse_releasedir(ino:u64)->DbfsResult<()>{
+    pop_readdir_table(ino as usize);
+    Ok(())
+}
+
 pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
     warn!("dbfs_fuse_readdir(ino:{},offset:{})", ino, offset);
     assert!(offset >= 0);
@@ -33,6 +39,7 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
         }
         let res = res.unwrap();
         if res == 0 {
+            error!("There is no entry in the directory.");
             repl.ok();
             return;
         }
@@ -41,10 +48,15 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
             if repl.add(x.ino, x.offset as i64 + 1, x.kind.into(), x.name.as_str()) {
                 // buf full
                 repl.ok();
+                // TODO! update GLOBAL_READDIR_TABLE
+                push_readdir_table(ino as usize,ReadDirInfo::new(x.offset as usize,x.name.clone()));
+                warn!("push_readdir_table(ino:{},offset:{},name:{})",ino,x.offset,x.name);
                 return;
             }
             offset = x.offset as i64 + 1;
         }
+        let x = &entries[res-1];
+        push_readdir_table(ino as usize,ReadDirInfo::new(x.offset as usize,x.name.clone()));
     }
 }
 
@@ -70,10 +82,15 @@ pub fn dbfs_fuse_readdirplus(ino:u64, mut offset:i64, mut repl:ReplyDirectoryPlu
             if repl.add(x.ino, x.offset as i64 + 1, x.name.as_str(), &TTL, &attr.into(), 0) {
                 // buf full
                 repl.ok();
+
+                // TODO! update GLOBAL_READDIR_TABLE
+                push_readdir_table(ino as usize,ReadDirInfo::new(x.offset as usize,x.name.clone()));
                 return;
             }
             offset = x.offset as i64 + 1;
         }
+        let x = &entries[res-1];
+        push_readdir_table(ino as usize,ReadDirInfo::new(x.offset as usize,x.name.clone()));
     }
 }
 

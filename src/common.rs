@@ -1,12 +1,14 @@
 #![allow(unused)]
 use crate::{u32, u64};
 use alloc::string::String;
-use alloc::vec;
+use alloc::{format, vec};
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::fmt::{Debug, Display, Formatter};
 use core::ops::Deref;
 use onlyerror::Error;
+use spin::{Once, RwLock};
 
 pub const FMODE_EXEC: i32 = 0x20;
 pub const MAX_PATH_LEN: usize = 255;
@@ -292,11 +294,53 @@ pub struct DbfsFsStat {
     pub name: [u8; 32],
 }
 
-pub fn generate_data_key(num: u32) -> Vec<u8> {
+pub fn generate_data_key_with_number(num: u32) -> Vec<u8> {
     let mut datakey = b"data:".to_vec();
     datakey.extend_from_slice(&num.to_be_bytes());
     datakey
 }
+
+pub fn generate_data_key(value:&str) -> String{
+    format!("data:{}",value)
+}
+
+
+#[derive(Debug,Clone)]
+pub struct ReadDirInfo{
+    pub offset:usize,
+    pub key:String,
+}
+
+impl ReadDirInfo {
+    pub fn new(offset:usize,key:String) -> Self{
+        Self{
+            offset,
+            key,
+        }
+    }
+}
+
+/// When readdir firstly, we need to store the offset and key for the ino so that
+/// we can continue to read the directory when the fuse call readdir again.
+pub static GLOBAL_READDIR_TABLE:RwLock<BTreeMap<usize,ReadDirInfo>> = RwLock::new(BTreeMap::new());
+
+pub fn push_readdir_table(ino:usize,info:ReadDirInfo){
+    let mut table = GLOBAL_READDIR_TABLE.write();
+    table.insert(ino,info);
+}
+
+pub fn pop_readdir_table(ino:usize) -> Option<ReadDirInfo>{
+    let mut table = GLOBAL_READDIR_TABLE.write();
+    table.remove(&ino)
+}
+
+
+/// This function will be called when the fuse call readdir.
+pub fn get_readdir_table(ino:usize) -> Option<ReadDirInfo>{
+    let table = GLOBAL_READDIR_TABLE.read();
+    table.get(&ino).cloned()
+}
+
 
 #[cfg(feature = "fuse")]
 mod impl_fuse {
