@@ -20,19 +20,22 @@ core2 = {version = "0.4.0",default-features = false,optional = true}
 memmap2 = {version = "0.5.10",optional = true}
 downcast = {version = "0.11.0",optional = true}
 rand = {version = "0.8.5",optional = true }
+buddy_system_allocator = {version = "0.9.0",optional = true}
 log = "0.4.17"
 
 [features]
 default = ["rvfs"]
 rvfs = []
-fuse = ["rand","fuser","libc","core2","memmap2","downcast","fuser/abi-7-19","fuser/abi-7-16","fuser/abi-7-28"]
+fuse = ["rand","fuser","libc","core2","memmap2","downcast","fuser/abi-7-19","fuser/abi-7-16","fuser/abi-7-28","buddy_system_allocator"]
 sli512 = []
+sli8k = []
 sli4k = []
 sli1k = []
+sli32k = []
 
 [dev-dependencies]
 env_logger = "0.9.0"
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 serde = {version = "1.0.136",default-features = false,features = ["derive","alloc"]}
-dbfs2 = {path = "../dbfs2",default-features = false,features = ["fuse","rvfs","sli4k"]}
+dbfs2 = {path = "../dbfs2",default-features = false,features = ["fuse","rvfs","sli32k"]}
 clap = { version = "3.0", features = ["cargo"] }

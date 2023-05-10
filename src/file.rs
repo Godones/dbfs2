@@ -1,14 +1,15 @@
-use crate::{clone_db, SLICE_SIZE, u16, u32, usize};
+use crate::{BUDDY_ALLOCATOR, clone_db, SLICE_SIZE, u16, u32, usize};
 use alloc::borrow::ToOwned;
 
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::{format, vec};
-use alloc::alloc::alloc;
+use alloc::alloc::{alloc, dealloc};
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::cmp::{max, min};
 use core::ops::Range;
+use core::ptr::NonNull;
 use downcast::_std::println;
 use jammdb::Data;
 use log::{debug, error, warn};
@@ -200,6 +201,7 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let mut offset = offset % SLICE_SIZE as u64;
     let mut count = 0;
 
+    let mut ptrs = vec![];
     loop {
         let key = generate_data_key_with_number(num as u32);
         let kv = bucket.get_kv(key.as_slice());
@@ -209,9 +211,14 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
             kv.as_ref().unwrap().value().as_ptr()
         } else {
             // [0; SLICE_SIZE].to_vec()
-            unsafe {
-                alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8))
-            }
+            // error!("not found key: {:?}", key);
+            let ptr = unsafe {
+                // alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8))
+                let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
+                ptr.unwrap().as_ptr()
+            };
+            ptrs.push(ptr);
+            ptr
         };
         let data = unsafe{
             core::slice::from_raw_parts_mut(data as *mut u8, SLICE_SIZE)
@@ -230,6 +237,12 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let new_size = max(size, (o_offset as usize + count) as usize);
     bucket.put("size", new_size.to_be_bytes()).unwrap();
     tx.commit()?;
+    ptrs.into_iter().for_each(|ptr| {
+        unsafe {
+            // dealloc(ptr, Layout::from_size_align_unchecked(SLICE_SIZE, 8));
+            BUDDY_ALLOCATOR.lock().dealloc(NonNull::new(ptr).unwrap(), Layout::from_size_align_unchecked(SLICE_SIZE, 8))
+        }
+    });
     Ok(count)
 }
 

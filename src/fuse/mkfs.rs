@@ -138,7 +138,7 @@ impl FileExt for FakeFile {
         if self.size > new_size as usize{
             return Ok(())
         }else {
-            panic!("Don't need allocate");
+            panic!("Don't need allocate, the new size is {}MB, old size is {}",new_size/1024/1024,self.size/1024/1024);
             let res =
             self.file
                 .set_len(new_size)

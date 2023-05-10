@@ -165,5 +165,5 @@ jfs
 myjfs.db
 myjfs
 Pipfile.lock
-
+ntfs*
 pjdfstest

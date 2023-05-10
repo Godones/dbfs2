@@ -1,6 +1,6 @@
 use crate::file::DBFS_DIR_FILE_OPS;
 use crate::inode::{permission_from_mode, DBFS_DIR_INODE_OPS, DBFS_INODE_NUMBER};
-use crate::{clone_db, SLICE_SIZE, u32, u64, usize};
+use crate::{clone_db, init_cache, SLICE_SIZE, u32, u64, usize};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::sync::{Arc, Weak};
@@ -93,6 +93,9 @@ fn dbfs_create_simple_super_blk(
     let continue_number = usize!(continue_number.value());
     // set the next inode number
     DBFS_INODE_NUMBER.store(continue_number, core::sync::atomic::Ordering::SeqCst);
+    init_cache();
+
+
     let blk_size = bucket.get_kv("blk_size").unwrap();
     let blk_size = u32!(blk_size.value());
     let magic = bucket.get_kv("magic").unwrap();

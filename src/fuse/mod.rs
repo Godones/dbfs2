@@ -6,9 +6,11 @@ pub mod mkfs;
 
 extern crate std;
 
+use alloc::alloc::alloc;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::alloc::Layout;
 use downcast::_std::path::Path;
 use downcast::_std::println;
 use downcast::_std::time::SystemTime;
@@ -35,15 +37,14 @@ use crate::fuse::attr::{
 };
 use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, dbfs_fuse_unlink};
 use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions};
-use crate::{init_dbfs, u64};
+use crate::{BUDDY_ALLOCATOR, init_cache, init_dbfs, u64};
 pub use mkfs::init_dbfs_fuse;
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
                                               // const FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
 // const FILE_SIZE: u64 = 9999999999999999;
-const FILE_SIZE:usize = 1024*1024*1024*6; // 4GB
+const FILE_SIZE:usize = 1024*1024*1024*6; // 6GB
 
-const MAX_BUF_SIZE:usize = 1024*1024*2; // 2MB
 
 
 pub struct DbfsFuse {
@@ -79,6 +80,7 @@ impl Filesystem for DbfsFuse {
         init_db(&db, FILE_SIZE as u64);
         test_dbfs(&db);
         init_dbfs(db);
+        init_cache();
         let uid = unsafe { libc::getuid() };
         let gid = unsafe { libc::getgid() };
         let time = DbfsTimeSpec::from(SystemTime::now());

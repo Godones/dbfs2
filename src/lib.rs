@@ -8,11 +8,15 @@ mod file;
 mod fs_type;
 mod inode;
 
+use alloc::alloc::alloc;
 use alloc::sync::Arc;
+use core::alloc::Layout;
 use core::ops::{Deref, DerefMut};
+use buddy_system_allocator::LockedHeap;
 use jammdb::DB;
+use log::error;
 
-use spin::Once;
+use spin::{Mutex, Once};
 
 pub use fs_type::DBFS;
 pub mod extend;
@@ -99,3 +103,18 @@ pub const SLICE_SIZE:usize = 4096;
 
 #[cfg(feature = "sli8k")]
 pub const SLICE_SIZE:usize = 8192;
+
+#[cfg(feature = "sli32k")]
+pub const SLICE_SIZE:usize = 8192 * 2 * 2;
+
+static BUDDY_ALLOCATOR:LockedHeap<32>  = LockedHeap::empty();
+const MAX_BUF_SIZE:usize = 64*1024*1024; // 64MB
+
+fn init_cache(){
+    error!("alloc {}MB for cache",64);
+    unsafe{
+        let ptr = alloc(Layout::from_size_align_unchecked(MAX_BUF_SIZE,8));
+        BUDDY_ALLOCATOR.lock().init(ptr as usize,MAX_BUF_SIZE);
+    };
+    error!("alloc ok");
+}
