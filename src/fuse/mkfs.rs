@@ -207,7 +207,7 @@ pub struct FakeMMap;
 
 struct IndexByPageIDImpl {
     // map: memmap2::Mmap,
-    map:memmap2::MmapMut
+    map:memmap2::Mmap
 }
 
 static MMAP:Once<Arc<IndexByPageIDImpl>> = Once::new();
@@ -234,13 +234,13 @@ impl MemoryMap for FakeMMap {
 }
 
 /// populate
-fn mmap(file: &std::fs::File, populate: bool) -> Result<memmap2::MmapMut, ()> {
+fn mmap(file: &std::fs::File, populate: bool) -> Result<memmap2::Mmap, ()> {
     use memmap2::MmapOptions;
     let mut options = MmapOptions::new();
     if populate {
         options.populate();
     }
-    let mmap = unsafe { options.map_mut(file).unwrap() };
+    let mmap = unsafe { options.map(file).unwrap() };
     // On Unix we advice the OS that page access will be random.
     mmap.advise(memmap2::Advice::Random).unwrap();
     Ok(mmap)

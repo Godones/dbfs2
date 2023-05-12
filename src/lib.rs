@@ -108,10 +108,10 @@ pub const SLICE_SIZE:usize = 8192;
 pub const SLICE_SIZE:usize = 8192 * 2 * 2;
 
 static BUDDY_ALLOCATOR:LockedHeap<32>  = LockedHeap::empty();
-const MAX_BUF_SIZE:usize = 64*1024*1024; // 64MB
+const MAX_BUF_SIZE:usize = 8*1024*1024; // 64MB
 
 fn init_cache(){
-    error!("alloc {}MB for cache",64);
+    error!("alloc {}MB for cache",8);
     unsafe{
         let ptr = alloc(Layout::from_size_align_unchecked(MAX_BUF_SIZE,8));
         BUDDY_ALLOCATOR.lock().init(ptr as usize,MAX_BUF_SIZE);

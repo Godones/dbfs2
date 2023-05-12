@@ -10,7 +10,6 @@ use core::alloc::Layout;
 use core::cmp::{max, min};
 use core::ops::Range;
 use core::ptr::NonNull;
-use downcast::_std::println;
 use jammdb::Data;
 use log::{debug, error, warn};
 
@@ -40,6 +39,12 @@ pub const DBFS_SYMLINK_FILE_OPS: FileOps = {
 };
 
 fn dbfs_file_write(file: Arc<File>, buf: &[u8], offset: u64) -> StrResult<usize> {
+    warn!(
+        "dbfs_file_write ino: {}, offset: {}, buf.len: {}, slice_size:{}",
+        file.f_dentry.access_inner().d_inode.number,
+        offset,
+        buf.len(),
+        SLICE_SIZE);
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
@@ -205,41 +210,50 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     loop {
         let key = generate_data_key_with_number(num as u32);
         let kv = bucket.get_kv(key.as_slice());
-        let mut data = if kv.is_some() {
-            // the existed data
-            // kv.unwrap().value().to_owned()
-            kv.as_ref().unwrap().value().as_ptr()
-        } else {
-            // [0; SLICE_SIZE].to_vec()
-            // error!("not found key: {:?}", key);
-            let ptr = unsafe {
-                // alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8))
-                let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
-                ptr.unwrap().as_ptr()
-            };
-            ptrs.push(ptr);
-            ptr
+        let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
+        if len == 0 {
+            break;
+        }
+        let (data,real_len) = if kv.is_none(){
+            let ptr = unsafe { buf.as_ptr().add(count) };
+            (ptr,len)
+        }else {
+            let value = kv.as_ref().unwrap().value();
+            if value.len() <= len{
+                let ptr = unsafe { buf.as_ptr().add(count) };
+                (ptr,len)
+            } else {
+                let ptr = unsafe {
+                    let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(value.len(), 8));
+                    ptr.unwrap().as_ptr()
+                };
+                unsafe {
+                    ptr.copy_from(value.as_ptr(),value.len());
+                    ptr.copy_from(buf.as_ptr().add(count),len);
+                }
+                ptrs.push(ptr);
+                (ptr as * const u8,value.len())
+            }
         };
         let data = unsafe{
-            core::slice::from_raw_parts_mut(data as *mut u8, SLICE_SIZE)
+            core::slice::from_raw_parts(data, real_len)
         };
-
-        let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
-        data[offset as usize..offset as usize + len].copy_from_slice(&buf[count..count + len]);
-        count += len;
+        bucket.put(key, data)?;
+        count += real_len;
         offset = (offset + len as u64) % SLICE_SIZE as u64;
         num += 1;
-        bucket.put(key, &*data).unwrap();
         if count == buf.len() {
             break;
         }
     }
+
     let new_size = max(size, (o_offset as usize + count) as usize);
-    bucket.put("size", new_size.to_be_bytes()).unwrap();
+    if new_size > size {
+        bucket.put("size", new_size.to_be_bytes())?;
+    }
     tx.commit()?;
     ptrs.into_iter().for_each(|ptr| {
         unsafe {
-            // dealloc(ptr, Layout::from_size_align_unchecked(SLICE_SIZE, 8));
             BUDDY_ALLOCATOR.lock().dealloc(NonNull::new(ptr).unwrap(), Layout::from_size_align_unchecked(SLICE_SIZE, 8))
         }
     });

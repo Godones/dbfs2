@@ -53,7 +53,7 @@ fn main() {
     let start = SystemTime::now();
     const BK:usize = 8192*2*2;
     let buf = [1u8;BK];
-    // write 1GB
+    // write 2GB
     for i in 0..2*1024*1024*1024/BK {
         let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, (i * BK) as u64).unwrap();
         assert_eq!(res, BK);
@@ -65,7 +65,7 @@ fn main() {
 
     let start = SystemTime::now();
     let buf = [1u8;BK];
-    // write 1GB
+    // write 2GB
     for i in 0..2*1024*1024*1024/BK {
         let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, (i * BK) as u64).unwrap();
         assert_eq!(res, BK);

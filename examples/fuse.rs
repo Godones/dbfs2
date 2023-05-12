@@ -62,10 +62,10 @@ fn fuse() {
         matches.contains_id("direct-io"),
         matches.contains_id("suid"),
     );
-    options.push(MountOption::Atime);
     options.push(MountOption::AllowOther);
     options.push(MountOption::RW);
     options.push(MountOption::Async);
+    options.push(MountOption::CUSTOM("readdir_ino".to_string()));
 
     println!("options: {:?}",options);
     fuser::mount2(fs, mountpoint, &options).unwrap();
