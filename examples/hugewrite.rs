@@ -1,13 +1,13 @@
-use dbfs2::{DBFS, SLICE_SIZE};
+use dbfs2::{DBFS, FLAG, SLICE_SIZE};
 
 use jammdb::DB;
-use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_read_file, vfs_write_file, FileMode, OpenFlags};
+use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_write_file, FileMode, OpenFlags};
 use rvfs::mount::{do_mount, MountFlags};
 use rvfs::superblock::register_filesystem;
 use rvfs::{init_process_info, FakeFSC};
 use std::sync::Arc;
 use std::time::SystemTime;
-use rvfs::stat::{KStat, vfs_getattr_by_file};
+
 use dbfs2::fuse::mkfs::{FakeMMap, MyOpenOptions};
 
 fn main() {
@@ -35,49 +35,61 @@ fn main() {
         FileMode::FMODE_WRITE,
     )
     .unwrap();
-    println!("write to file 128MB");
-    let mut buf_read: Vec<u8> = vec![1u8; 1024 * 1024 * 128];
-    // rand data
-    let buf: Vec<u8> = (0..1024 * 1024 * 128).map(|_| rand::random::<u8>()).collect();
-    let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, 0).unwrap();
-    println!("write res:{:#?}", res);
-    assert_eq!(res, buf.len());
-
-    let read = vfs_read_file::<FakeFSC>(f1_file.clone(), &mut buf_read, 0).unwrap();
-    println!("read res:{:#?}", read);
-    assert_eq!(read, buf.len());
-
-    for i in 0..buf.len() {
-        assert_eq!(buf[i], buf_read[i]);
+    // println!("write to file 128MB");
+    // let mut buf_read: Vec<u8> = vec![1u8; 1024 * 1024 * 128];
+    // // rand data
+    // let buf: Vec<u8> = (0..1024 * 1024 * 128).map(|_| rand::random::<u8>()).collect();
+    // let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, 0).unwrap();
+    // println!("write res:{:#?}", res);
+    // assert_eq!(res, buf.len());
+    //
+    // let read = vfs_read_file::<FakeFSC>(f1_file.clone(), &mut buf_read, 0).unwrap();
+    // println!("read res:{:#?}", read);
+    // assert_eq!(read, buf.len());
+    //
+    // for i in 0..buf.len() {
+    //     assert_eq!(buf[i], buf_read[i]);
+    // }
+    // println!("{:?}",&buf[..10]);
+    // println!("{:?}",&buf_read[..10]);
+    //
+    // let stat = vfs_getattr_by_file(f1_file).unwrap();
+    // println!("stat:{:#?}", stat);
+    let start = SystemTime::now();
+    const BK:usize = 8192*2*2;
+    let buf = [1u8;BK];
+    // write 2GB
+    for i in 0..2*1024*1024*1024/BK {
+        if i == 0{
+            FLAG.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, (i * BK) as u64).unwrap();
+        assert_eq!(res, BK);
+        if i == 0{
+            FLAG.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
     }
-    println!("{:?}",&buf[..10]);
-    println!("{:?}",&buf_read[..10]);
+    let end = SystemTime::now();
+    println!("write 2GB cost:{:#?}", end.duration_since(start).unwrap());
+    println!("Throughput: {} MB/s", 2.0*1024.0 / end.duration_since(start).unwrap().as_secs_f64());
 
-    let stat = vfs_getattr_by_file(f1_file).unwrap();
-    println!("stat:{:#?}", stat);
-    // let start = SystemTime::now();
-    // const BK:usize = 8192*2*2;
-    // let buf = [1u8;BK];
-    // // write 2GB
-    // for i in 0..2*1024*1024*1024/BK {
-    //     let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, (i * BK) as u64).unwrap();
-    //     assert_eq!(res, BK);
-    // }
-    // let end = SystemTime::now();
-    // println!("write 2GB cost:{:#?}", end.duration_since(start).unwrap());
-    // println!("Throughput: {} MB/s", 2.0*1024.0 / end.duration_since(start).unwrap().as_secs_f64());
-    //
-    //
-    // let start = SystemTime::now();
-    // let buf = [1u8;BK];
-    // // write 2GB
-    // for i in 0..2*1024*1024*1024/BK {
-    //     let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, (i * BK) as u64).unwrap();
-    //     assert_eq!(res, BK);
-    // }
-    // let end = SystemTime::now();
-    // println!("write 2GB cost:{:#?}", end.duration_since(start).unwrap());
-    // println!("Throughput: {} MB/s", 2.0*1024.0 / end.duration_since(start).unwrap().as_secs_f64());
+
+    let start = SystemTime::now();
+    let buf = [1u8;BK];
+    // write 2GB
+    for i in 0..2*1024*1024*1024/BK {
+        if i == 0{
+            FLAG.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        let res = vfs_write_file::<FakeFSC>(f1_file.clone(), &buf, (i * BK) as u64).unwrap();
+        assert_eq!(res, BK);
+        if i == 0{
+            FLAG.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let end = SystemTime::now();
+    println!("write 2GB cost:{:#?}", end.duration_since(start).unwrap());
+    println!("Throughput: {} MB/s", 2.0*1024.0 / end.duration_since(start).unwrap().as_secs_f64());
 
 }
 fn init_db(db: &DB) {

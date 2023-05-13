@@ -21,8 +21,14 @@ use spin::{Mutex, Once};
 pub use fs_type::DBFS;
 pub mod extend;
 
+pub use file::FLAG;
+
+
 #[cfg(feature = "fuse")]
 pub mod fuse;
+
+#[cfg(feature = "fuse")]
+extern crate std;
 
 mod attr;
 mod common;
@@ -121,5 +127,29 @@ fn init_cache(){
 
 
 fn copy_data(src:*const u8,dest:*mut u8,len:usize){
-
+    if src as usize % 16 == 0 && dest as usize % 16 == 0 && len % 16 == 0{
+        unsafe {
+            (dest as *mut u128)
+                .copy_from_nonoverlapping(src as *const u128, len/16);
+        }
+    }else if src as usize % 8 == 0 && dest as usize % 8 == 0 && len % 8 == 0{
+        unsafe {
+            (dest as *mut u64)
+                .copy_from_nonoverlapping(src as *const u64, len/8);
+        }
+    }else if src as usize % 4 == 0 && dest as usize % 4 == 0 && len % 4 == 0{
+        unsafe {
+            (dest as *mut u32)
+                .copy_from_nonoverlapping(src as *const u32, len/4);
+        }
+    }else if src as usize % 2 == 0 && dest as usize % 2 == 0 && len % 2 == 0{
+        unsafe {
+            (dest as *mut u16)
+                .copy_from_nonoverlapping(src as *const u16, len/2);
+        }
+    }else{
+        unsafe {
+            dest.copy_from_nonoverlapping(src, len);
+        }
+    }
 }

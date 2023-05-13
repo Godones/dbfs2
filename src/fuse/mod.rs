@@ -36,7 +36,7 @@ use crate::fuse::attr::{
     dbfs_fuse_utimens,
 };
 use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, dbfs_fuse_unlink};
-use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions};
+use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions, FakePath};
 use crate::{BUDDY_ALLOCATOR, init_cache, init_dbfs, u64};
 pub use mkfs::init_dbfs_fuse;
 
@@ -76,7 +76,7 @@ impl DbfsFuse {
 impl Filesystem for DbfsFuse {
     fn init(&mut self, _req: &Request<'_>, _config: &mut KernelConfig) -> Result<(), c_int> {
         let path = "./test.dbfs";
-        let db = DB::open::<MyOpenOptions<FILE_SIZE>, _>(Arc::new(FakeMMap), path).map_err(|_| -1)?; // TODO: error handling
+        let db = DB::open::<MyOpenOptions<FILE_SIZE>,FakePath>(Arc::new(FakeMMap), FakePath::new(path)).map_err(|_| -1)?; // TODO: error handling
         init_db(&db, FILE_SIZE as u64);
         test_dbfs(&db);
         init_dbfs(db);
@@ -358,12 +358,17 @@ impl Filesystem for DbfsFuse {
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        let mut data = vec![0u8; size as usize];
-        let res = dbfs_fuse_read(ino, offset, data.as_mut_slice());
+        // let mut data = vec![0u8; size as usize];
+        let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align(size as usize, 8).unwrap()).unwrap();
+        let data = unsafe{
+            std::slice::from_raw_parts_mut(ptr.as_ptr() as *mut u8, size as usize)
+        };
+        let res = dbfs_fuse_read(ino, offset, data);
         match res {
             Ok(x) => reply.data(data[..x].as_ref()),
             Err(_) => reply.error(ENOENT),
         }
+        BUDDY_ALLOCATOR.lock().dealloc(ptr, Layout::from_size_align(size as usize, 8).unwrap());
     }
 
     fn write(
@@ -380,7 +385,7 @@ impl Filesystem for DbfsFuse {
     ) {
         let res = dbfs_fuse_write(ino, offset, data);
         match res {
-            Ok(_) => reply.written(res.unwrap() as u32),
+            Ok(x) => reply.written(x as u32),
             Err(_) => reply.error(ENOENT),
         }
     }

@@ -67,11 +67,6 @@ impl <const S:usize> OpenOption for MyOpenOptions<S> {
     }
 }
 
-
-static FLAG:AtomicBool = AtomicBool::new(false);
-static mut DIRTY:bool = false;
-
-
 pub struct FakeFile {
     file:  std::fs::File,
     size: usize,
@@ -186,8 +181,16 @@ impl FileExt for FakeFile {
 impl DbFile for FakeFile {}
 
 #[derive(Debug)]
-struct FakePath {
+pub struct FakePath {
     path: std::path::PathBuf,
+}
+
+impl FakePath {
+    pub fn new(path: &str) -> Self {
+        FakePath {
+            path: std::path::PathBuf::from(path),
+        }
+    }
 }
 
 impl Display for FakePath {

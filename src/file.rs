@@ -1,4 +1,4 @@
-use crate::{BUDDY_ALLOCATOR, clone_db, SLICE_SIZE, u16, u32, usize};
+use crate::{BUDDY_ALLOCATOR, clone_db, copy_data, SLICE_SIZE, u16, u32, usize};
 use alloc::borrow::ToOwned;
 
 use alloc::string::ToString;
@@ -10,6 +10,7 @@ use core::alloc::Layout;
 use core::cmp::{max, min};
 use core::ops::Range;
 use core::ptr::NonNull;
+use std::sync::atomic::AtomicBool;
 use jammdb::Data;
 use log::{debug, error, warn};
 
@@ -179,7 +180,7 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
 
    Ok(count)
 }
-
+pub static FLAG:AtomicBool = AtomicBool::new(false);
 /// we need think about how to write data to dbfs
 /// * data1: \[u8;SLICE_SIZE]
 /// * data2: \[u8;SLICE_SIZE]
@@ -197,15 +198,7 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let db = clone_db();
     let tx = db.tx(true)?;
     let bucket = tx.get_bucket(number.to_be_bytes())?;
-    let size = bucket.get_kv("size");
-    bucket.kv_pairs().for_each(|kv|{
-        let key = kv.key();
-        let value = kv.value();
-        if !key.starts_with(b"data:"){
-            error!("key:{:?}",core::str::from_utf8(key));
-        }
-    });
-    let size = size.unwrap();
+    let size = bucket.get_kv("size").unwrap();
     let size = usize!(size.value());
     let o_offset = offset;
     let mut num = offset / SLICE_SIZE as u64;
@@ -215,9 +208,19 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let mut ptrs = vec![];
     loop {
         let key = generate_data_key_with_number(num as u32);
+        #[cfg(feature = "fuse")]
+        let start = std::time::SystemTime::now();
         let kv = bucket.get_kv(key.as_slice());
-        let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
+        #[cfg(feature = "fuse")]
+        {
+            let end = std::time::SystemTime::now();
+            let duration = end.duration_since(start).unwrap();
+            if FLAG.load(core::sync::atomic::Ordering::Relaxed){
+                std::println!("get_kv: {:?}", duration);
+            }
+        }
 
+        let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
         let data = if kv.is_none(){
             if len==SLICE_SIZE && offset==0{
                 unsafe { buf.as_ptr().add(count) }
@@ -227,7 +230,7 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
                     ptr.unwrap().as_ptr()
                 };
                 unsafe {
-                    ptr.add(offset as usize).copy_from(buf.as_ptr().add(count),len);
+                    copy_data(buf.as_ptr().add(count),ptr.add(offset as usize),len);
                 }
                 ptrs.push(ptr);
                 ptr as * const u8
@@ -242,9 +245,9 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
                     ptr.unwrap().as_ptr()
                 };
                 unsafe {
-                    ptr.copy_from(value.as_ptr(),offset as usize);
-                    ptr.add(offset as usize).copy_from(buf.as_ptr().add(count),len);
-                    ptr.add(offset as usize + len).copy_from(value.as_ptr().add(offset as usize + len),SLICE_SIZE - offset as usize - len);
+                    copy_data(value.as_ptr(),ptr,offset as usize);
+                    copy_data(buf.as_ptr().add(count),ptr.add(offset as usize),len);
+                    copy_data(value.as_ptr().add(offset as usize + len),ptr.add(offset as usize + len),SLICE_SIZE - offset as usize - len);
                 }
                 ptrs.push(ptr);
                 ptr as * const u8

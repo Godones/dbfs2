@@ -1,8 +1,9 @@
 use std::sync::Arc;
-use std::time::SystemTime;
-use jammdb::{Data, DB};
+
+use jammdb::{DB};
+
 use dbfs2::fuse::mkfs::{FakeMMap, MyOpenOptions};
-use dbfs2::SLICE_SIZE;
+
 
 
 fn main() {
@@ -29,7 +30,7 @@ fn main() {
     //     println!("time:{:?}", end.duration_since(start).unwrap());
     // }
 
-    let db = DB::open::<MyOpenOptions<{ 3 * 1024 * 1024 * 1024 }>, _>(Arc::new(FakeMMap), "my-database1.db").unwrap(); // TODO: error handling
+    let _db = DB::open::<MyOpenOptions<{ 3 * 1024 * 1024 * 1024 }>, _>(Arc::new(FakeMMap), "my-database1.db").unwrap(); // TODO: error handling
     // {
     //
     //     const PER_SIZE: usize = 8192*2*2;
@@ -57,29 +58,35 @@ fn main() {
     //     println!("throughput:{:?}",1024.0/ end.duration_since(start).unwrap().as_secs_f64());
     // }
 
-    const PER_SIZE: usize = 1024*1024*128-1;
-    let buf = vec![1u8;PER_SIZE];
-    let mut new_buf = vec![0u8;PER_SIZE];
-    let start = SystemTime::now();
+    // const PER_SIZE: usize = 1024*32;
+    // let buf = vec![1u8;PER_SIZE];
+    // let mut new_buf = vec![0u8;PER_SIZE];
+    // let start = SystemTime::now();
+    // unsafe {
+    //     new_buf.as_mut_ptr().copy_from(buf.as_ptr(), PER_SIZE);
+    // }
+    // let end = SystemTime::now();
+    // println!("time:{:?}", end.duration_since(start).unwrap());
+    // assert_eq!(buf, new_buf);
+    //
+    // let start = SystemTime::now();
+    // unsafe {
+    //     (new_buf.as_mut_ptr() as *mut u128)
+    //         .copy_from_nonoverlapping(buf.as_ptr() as *const u128, PER_SIZE/16);
+    // }
+    // let end = SystemTime::now();
+    // println!("time:{:?}", end.duration_since(start).unwrap());
+    // assert_eq!(buf, new_buf)
+
+    let buf1 = [255u8;32];
+    let mut buf2 = [0u8;32];
+    let tmp_buf = &mut buf2[..15];
     unsafe {
-        new_buf.as_mut_ptr().copy_from(buf.as_ptr(), PER_SIZE);
+        // buf2.as_mut_ptr().copy_from(buf1.as_ptr(), 16);
+        (tmp_buf.as_ptr() as *mut u128)
+            .copy_from_nonoverlapping(buf1.as_ptr() as *const u128, 1);
     }
-    let end = SystemTime::now();
-    println!("time:{:?}", end.duration_since(start).unwrap());
-    assert_eq!(buf, new_buf);
-
-    let start = SystemTime::now();
-    unsafe {
-        (new_buf.as_mut_ptr() as *mut u128)
-            .copy_from_nonoverlapping(buf.as_ptr() as *const u128, PER_SIZE/16);
-    }
-    let end = SystemTime::now();
-    println!("time:{:?}", end.duration_since(start).unwrap());
-    assert_eq!(buf, new_buf)
-
-
+    println!("{:?}",buf2);
 }
-
-
 
 
