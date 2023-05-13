@@ -78,8 +78,6 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     if offset >= size as u64 {
         return Ok(0);
     }
-
-
     // TODO! second version
     let tmp = [0u8; SLICE_SIZE];
     let mut start_num = offset / SLICE_SIZE as u64;
@@ -199,7 +197,15 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let db = clone_db();
     let tx = db.tx(true)?;
     let bucket = tx.get_bucket(number.to_be_bytes())?;
-    let size = bucket.get_kv("size").unwrap();
+    let size = bucket.get_kv("size");
+    bucket.kv_pairs().for_each(|kv|{
+        let key = kv.key();
+        let value = kv.value();
+        if !key.starts_with(b"data:"){
+            error!("key:{:?}",core::str::from_utf8(key));
+        }
+    });
+    let size = size.unwrap();
     let size = usize!(size.value());
     let o_offset = offset;
     let mut num = offset / SLICE_SIZE as u64;
@@ -211,35 +217,45 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
         let key = generate_data_key_with_number(num as u32);
         let kv = bucket.get_kv(key.as_slice());
         let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
-        if len == 0 {
-            break;
-        }
-        let (data,real_len) = if kv.is_none(){
-            let ptr = unsafe { buf.as_ptr().add(count) };
-            (ptr,len)
-        }else {
-            let value = kv.as_ref().unwrap().value();
-            if value.len() <= len{
-                let ptr = unsafe { buf.as_ptr().add(count) };
-                (ptr,len)
-            } else {
+
+        let data = if kv.is_none(){
+            if len==SLICE_SIZE && offset==0{
+                unsafe { buf.as_ptr().add(count) }
+            }else {
                 let ptr = unsafe {
-                    let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(value.len(), 8));
+                    let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
                     ptr.unwrap().as_ptr()
                 };
                 unsafe {
-                    ptr.copy_from(value.as_ptr(),value.len());
-                    ptr.copy_from(buf.as_ptr().add(count),len);
+                    ptr.add(offset as usize).copy_from(buf.as_ptr().add(count),len);
                 }
                 ptrs.push(ptr);
-                (ptr as * const u8,value.len())
+                ptr as * const u8
+            }
+        }else {
+            if len==SLICE_SIZE && offset==0{
+                unsafe { buf.as_ptr().add(count) }
+            }else {
+                let value = kv.as_ref().unwrap().value();
+                let ptr = unsafe {
+                    let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
+                    ptr.unwrap().as_ptr()
+                };
+                unsafe {
+                    ptr.copy_from(value.as_ptr(),offset as usize);
+                    ptr.add(offset as usize).copy_from(buf.as_ptr().add(count),len);
+                    ptr.add(offset as usize + len).copy_from(value.as_ptr().add(offset as usize + len),SLICE_SIZE - offset as usize - len);
+                }
+                ptrs.push(ptr);
+                ptr as * const u8
             }
         };
         let data = unsafe{
-            core::slice::from_raw_parts(data, real_len)
+            core::slice::from_raw_parts(data, SLICE_SIZE)
         };
+
         bucket.put(key, data)?;
-        count += real_len;
+        count += len;
         offset = (offset + len as u64) % SLICE_SIZE as u64;
         num += 1;
         if count == buf.len() {

@@ -57,38 +57,29 @@ fn main() {
     //     println!("throughput:{:?}",1024.0/ end.duration_since(start).unwrap().as_secs_f64());
     // }
 
-    reference(&db,&vec![1u8;1*128*1024]);
-    {
-        let tx = db.tx(false).unwrap();
-        let inode = tx.get_bucket("inode").unwrap();
-        inode.kv_pairs().for_each(|x|{
-            println!("{:?}: {}",x.key(),x.value().len());
-        })
+    const PER_SIZE: usize = 1024*1024*128-1;
+    let buf = vec![1u8;PER_SIZE];
+    let mut new_buf = vec![0u8;PER_SIZE];
+    let start = SystemTime::now();
+    unsafe {
+        new_buf.as_mut_ptr().copy_from(buf.as_ptr(), PER_SIZE);
     }
+    let end = SystemTime::now();
+    println!("time:{:?}", end.duration_since(start).unwrap());
+    assert_eq!(buf, new_buf);
+
+    let start = SystemTime::now();
+    unsafe {
+        (new_buf.as_mut_ptr() as *mut u128)
+            .copy_from_nonoverlapping(buf.as_ptr() as *const u128, PER_SIZE/16);
+    }
+    let end = SystemTime::now();
+    println!("time:{:?}", end.duration_since(start).unwrap());
+    assert_eq!(buf, new_buf)
+
 
 }
 
 
 
-fn reference(db:&DB,buf:&[u8]){
-    let tx = db.tx(true).unwrap();
-    const PER_SIZE: usize = 8192*2*2;
-    let mut count  = 0;
-    let len = buf.len();
-
-    let inode = tx.get_or_create_bucket("inode").unwrap();
-    let mut start = 0usize;
-    let offset = 0;
-    loop {
-        let min = std::cmp::min(PER_SIZE, len - count);
-        let data = &buf[offset..offset+min];
-        inode.put(start.to_be_bytes(), data).unwrap();
-        count += PER_SIZE;
-        if count >= len{
-            break;
-        }
-        start += 1;
-    }
-    tx.commit().unwrap();
-}
 

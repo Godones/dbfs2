@@ -108,7 +108,7 @@ pub const SLICE_SIZE:usize = 8192;
 pub const SLICE_SIZE:usize = 8192 * 2 * 2;
 
 static BUDDY_ALLOCATOR:LockedHeap<32>  = LockedHeap::empty();
-const MAX_BUF_SIZE:usize = 8*1024*1024; // 64MB
+const MAX_BUF_SIZE:usize = 8*1024*1024; // 8MB
 
 fn init_cache(){
     error!("alloc {}MB for cache",8);
@@ -117,4 +117,9 @@ fn init_cache(){
         BUDDY_ALLOCATOR.lock().init(ptr as usize,MAX_BUF_SIZE);
     };
     error!("alloc ok");
+}
+
+
+fn copy_data(src:*const u8,dest:*mut u8,len:usize){
+
 }
