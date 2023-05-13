@@ -22,7 +22,7 @@ downcast = {version = "0.11.0",optional = true}
 log = "0.4.17"
 
 [features]
-default = ["rvfs"]
+default = ["rvfs","sli4k"]
 rvfs = []
 fuse = ["fuser","libc","core2","memmap2","downcast","fuser/abi-7-19","fuser/abi-7-16","fuser/abi-7-28"]
 sli512 = []
