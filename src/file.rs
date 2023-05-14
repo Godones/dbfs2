@@ -10,7 +10,7 @@ use core::alloc::Layout;
 use core::cmp::{max, min};
 use core::ops::Range;
 use core::ptr::NonNull;
-use std::sync::atomic::AtomicBool;
+use core::sync::atomic::AtomicBool;
 use jammdb::Data;
 use log::{debug, error, warn};
 

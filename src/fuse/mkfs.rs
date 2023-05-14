@@ -57,7 +57,8 @@ impl <const S:usize> OpenOption for MyOpenOptions<S> {
             .create(self.create)
             .open(path.to_string())
             .unwrap();
-        file.set_len(S as u64).unwrap();
+        // file.set_len(S as u64).unwrap();
+        println!("file size is {}GB",file.metadata().unwrap().len()/1024/1024/1024);
         Ok(File::new(Box::new(FakeFile::new(file))))
     }
 
@@ -201,7 +202,8 @@ impl Display for FakePath {
 
 impl PathLike for FakePath {
     fn exists(&self) -> bool {
-        self.path.exists()
+        // self.path.exists()
+        false
     }
 }
 
