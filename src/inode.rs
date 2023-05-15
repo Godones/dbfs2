@@ -1139,7 +1139,7 @@ pub fn dbfs_common_rename(
     // 3.1 update the size
 
     let old_dir_size = old_dir_bucket.get_kv("size").unwrap();
-    let mut old_dir_size =  usize!(old_dir_size.value());
+    let old_dir_size =  usize!(old_dir_size.value());
 
     old_dir_bucket.put("size", (old_dir_size - 1).to_be_bytes())?;
 

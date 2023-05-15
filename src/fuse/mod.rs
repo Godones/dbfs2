@@ -6,23 +6,24 @@ pub mod mkfs;
 
 extern crate std;
 
-use alloc::alloc::alloc;
+
 use alloc::sync::Arc;
 use alloc::vec;
-use alloc::vec::Vec;
-use core::alloc::Layout;
+use std::alloc::Layout;
+
+
 use downcast::_std::path::Path;
 use downcast::_std::println;
 use downcast::_std::time::SystemTime;
 use fuser::consts::FOPEN_DIRECT_IO;
-use fuser::{FileAttr, Filesystem, fuse_forget_one, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow};
+use fuser::{FileAttr, Filesystem, fuse_forget_one, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow};
 use jammdb::DB;
 use libc::{c_int, ENOENT};
 use log::{error, info, warn};
 use std::ffi::OsStr;
 use std::time::Duration;
 
-use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_releasedir, dbfs_fuse_write};
+use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_releasedir, dbfs_fuse_special_read, dbfs_fuse_write};
 use crate::fuse::inode::{
     dbfs_fuse_create, dbfs_fuse_fallocate, dbfs_fuse_lookup, dbfs_fuse_mkdir, dbfs_fuse_mknod,
     dbfs_fuse_rename, dbfs_fuse_rmdir, dbfs_fuse_truncate,
@@ -37,7 +38,7 @@ use crate::fuse::attr::{
 };
 use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, dbfs_fuse_unlink};
 use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions, FakePath};
-use crate::{BUDDY_ALLOCATOR, init_cache, init_dbfs, u64};
+use crate::{BUDDY_ALLOCATOR, init_cache, init_dbfs};
 pub use mkfs::init_dbfs_fuse;
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
@@ -49,7 +50,7 @@ const FILE_SIZE:usize = 1024*1024*1024*20; // 6GB
 
 pub struct DbfsFuse {
     direct_io: bool,
-    suid_support: bool,
+    _suid_support: bool,
 }
 
 impl DbfsFuse {
@@ -67,7 +68,7 @@ impl DbfsFuse {
         {
             Self {
                 direct_io,
-                suid_support: false,
+                _suid_support: false,
             }
         }
     }
@@ -116,7 +117,7 @@ impl Filesystem for DbfsFuse {
         info!("forget");
     }
 
-    fn batch_forget(&mut self, req: &Request<'_>, nodes: &[fuse_forget_one]) {
+    fn batch_forget(&mut self, _req: &Request<'_>, nodes: &[fuse_forget_one]) {
         for node in nodes{
             warn!("batch_forget: {}", node.nodeid);
         }
@@ -347,6 +348,7 @@ impl Filesystem for DbfsFuse {
         }
     }
 
+
     fn read(
         &mut self,
         _req: &Request<'_>,
@@ -358,17 +360,18 @@ impl Filesystem for DbfsFuse {
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        // let mut data = vec![0u8; size as usize];
+        let mut data = vec![0u8; size as usize];
         let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align(size as usize, 8).unwrap()).unwrap();
         let data = unsafe{
             std::slice::from_raw_parts_mut(ptr.as_ptr() as *mut u8, size as usize)
         };
         let res = dbfs_fuse_read(ino, offset, data);
         match res {
-            Ok(x) => reply.data(data[..x].as_ref()),
+            Ok(x) => reply.data(&data[..x]),
             Err(_) => reply.error(ENOENT),
         }
         BUDDY_ALLOCATOR.lock().dealloc(ptr, Layout::from_size_align(size as usize, 8).unwrap());
+        // dbfs_fuse_special_read(ino as usize, offset, size as usize, reply).unwrap();
     }
 
     fn write(

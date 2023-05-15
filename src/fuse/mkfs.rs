@@ -1,13 +1,10 @@
 extern crate std;
-
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use core::fmt::Display;
-use core::sync::atomic::AtomicBool;
-
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
 use crate::{init_dbfs, SLICE_SIZE};
@@ -20,14 +17,16 @@ use jammdb::{
 };
 use rvfs::warn;
 use std::fs::OpenOptions;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use spin::{Mutex, Once, RwLock};
-use std::thread::{self, Thread,JoinHandle};
+use spin::{Once};
+
 
 pub struct MyOpenOptions<const S:usize>{
     read: bool,
     write: bool,
     create: bool,
+    #[allow(unused)]
     size: usize,
 }
 impl <const S:usize> OpenOption for MyOpenOptions<S> {
@@ -126,15 +125,11 @@ impl FileExt for FakeFile {
         Ok(())
     }
 
-    /// TODO: The second place for update
     fn allocate(&mut self, new_size: u64) -> IOResult<()> {
-        // self.file
-        //     .set_len(new_size)
-        //     .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"))
         if self.size > new_size as usize{
             return Ok(())
         }else {
-            panic!("Don't need allocate, the new size is {}MB, old size is {}",new_size/1024/1024,self.size/1024/1024);
+            // panic!("Don't need allocate, the new size is {}MB, old size is {}",new_size/1024/1024,self.size/1024/1024);
             let res =
             self.file
                 .set_len(new_size)
@@ -241,10 +236,12 @@ impl MemoryMap for FakeMMap {
 /// populate
 fn mmap(file: &std::fs::File, populate: bool) -> Result<memmap2::Mmap, ()> {
     use memmap2::MmapOptions;
+    let size = file.metadata().unwrap().len() as usize;
     let mut options = MmapOptions::new();
     if populate {
         options.populate();
     }
+    options.len(size);
     let mmap = unsafe { options.map(file).unwrap() };
     // On Unix we advice the OS that page access will be random.
     mmap.advise(memmap2::Advice::Random).unwrap();
@@ -255,6 +252,26 @@ impl IndexByPageID for IndexByPageIDImpl {
     fn index(&self, page_id: u64, page_size: usize) -> IOResult<&[u8]> {
         let start = page_id as usize * page_size;
         let end = start + page_size;
+
+        let size = self.map.len();
+        let page_size = 4096; // 页面大小为 4KB
+        let pages_to_read = 100; // 预读取的页面数量为 100
+        let start_page = (size / page_size) as usize; // 映射区域中的最后一页
+        let madv_flags = libc::MADV_WILLNEED | libc::MADV_SEQUENTIAL;
+        unsafe {
+            libc::madvise(
+                self.map.as_ptr() as *mut libc::c_void,
+                size as usize,
+                libc::MADV_WILLNEED,
+            );
+            libc::madvise(
+                self.map.as_ptr().add(start_page * page_size) as *mut libc::c_void,
+                pages_to_read * page_size,
+                madv_flags,
+            );
+        }
+
+
         Ok(&self.map[start..end])
     }
 

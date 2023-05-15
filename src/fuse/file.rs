@@ -1,24 +1,114 @@
-use crate::common::{DbfsDirEntry, DbfsError, DbfsResult, DbfsTimeSpec, FMODE_EXEC, pop_readdir_table, push_readdir_table, ReadDirInfo};
+use crate::common::{DbfsDirEntry, DbfsError, DbfsResult, DbfsTimeSpec, FMODE_EXEC, generate_data_key_with_number, pop_readdir_table, push_readdir_table, ReadDirInfo};
 use crate::file::{
     dbfs_common_copy_file_range, dbfs_common_open, dbfs_common_read, dbfs_common_readdir,
     dbfs_common_write,
 };
 use alloc::vec;
+use std::cmp::min;
+use std::io::IoSlice;
+use std::println;
 use downcast::_std::time::SystemTime;
-use fuser::{ReplyDirectory, ReplyDirectoryPlus, Request};
+use fuser::{ReplyData, ReplyDirectory, ReplyDirectoryPlus, Request};
 use log::error;
 
 use rvfs::warn;
+use smallvec::{SmallVec, smallvec};
+use crate::{clone_db, SLICE_SIZE, usize};
 use crate::fuse::TTL;
 
-pub fn dbfs_fuse_read(ino: u64, offset: i64, buf: &mut [u8]) -> Result<usize, ()> {
+pub fn dbfs_fuse_read(ino: u64, offset: i64, buf: &mut [u8]) -> DbfsResult<usize> {
     assert!(offset >= 0);
-    dbfs_common_read(ino as usize, buf, offset as u64).map_err(|_| ())
+    dbfs_common_read(ino as usize, buf, offset as u64)
 }
 
-pub fn dbfs_fuse_write(ino: u64, offset: i64, buf: &[u8]) -> Result<usize, ()> {
+//
+pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, repl:ReplyData) -> DbfsResult<usize> {
+    assert!(old_offset >= 0);
+    let offset = old_offset as u64;
+    let db = clone_db();
+    let tx = db.tx(false)?;
+    let bucket = tx.get_bucket(ino.to_be_bytes())?;
+    let size = bucket.get_kv("size").unwrap();
+    let size = usize!(size.value());
+    if offset >= size as u64 {
+        return Ok(0);
+    }
+    let mut res_slice:SmallVec<[IoSlice<'_>; 1024*1024/SLICE_SIZE]> = smallvec![];
+
+    let tmp = [0u8; SLICE_SIZE];
+    let mut start_num = offset / SLICE_SIZE as u64;
+    let mut offset = offset % SLICE_SIZE as u64;
+
+    let old_start = start_num;
+    let mut count = 0;
+    loop {
+        let key = generate_data_key_with_number(start_num as u32);
+        let value = bucket.get_kv(key);
+        let real_size = min(size - start_num as usize * SLICE_SIZE, SLICE_SIZE);
+        if value.is_none(){
+            // copy tmp buf to buf
+            let len = min(need_size - count, real_size.saturating_sub(offset as usize));
+
+            // buf[count..count + len].copy_from_slice(&tmp[offset as usize..offset as usize + len]);
+            let ptr = tmp.as_ptr();
+            let data = unsafe{
+                std::slice::from_raw_parts(ptr,SLICE_SIZE)
+            };
+            res_slice.push(IoSlice::new(&data[offset as usize..offset as usize + len]));
+
+            count += len;
+            offset  = (offset + len as u64) % SLICE_SIZE as u64;
+        }else {
+            let value = value.unwrap();
+            let value = value.value();
+            let len = min(need_size - count, real_size.saturating_sub(offset as usize));
+            // buf[count..count + len].copy_from_slice(&value[offset as usize..offset as usize + len]);
+            let ptr = value.as_ptr();
+            let data = unsafe{
+                std::slice::from_raw_parts(ptr,SLICE_SIZE)
+            };
+            res_slice.push(IoSlice::new(&data[offset as usize..offset as usize + len]));
+
+            count += len;
+            offset  = (offset + len as u64) % SLICE_SIZE as u64;
+        }
+        if count == size || count == need_size {
+            break;
+        }
+        start_num += 1;
+    }
+    error!("IoSlice len :{}",res_slice.len());
+    if count != need_size{
+        for i in 0..(need_size-count)/SLICE_SIZE{
+            let ptr = tmp.as_ptr();
+            let data = unsafe{
+                std::slice::from_raw_parts(ptr,SLICE_SIZE)
+            };
+            res_slice.push(IoSlice::new(data));
+        }
+        let len = (need_size-count)%SLICE_SIZE;
+        let ptr = tmp.as_ptr();
+        let data = unsafe{
+            std::slice::from_raw_parts(ptr,SLICE_SIZE)
+        };
+        res_slice.push(IoSlice::new(&data[..len]));
+    }
+
+    let total = res_slice.iter().fold(0,|acc,x|acc+x.len());
+    println!("read_num:{},offset:{},count:{},need:{},total:{}",start_num-old_start,old_offset,count,need_size,total);
+
+    repl.data2(&res_slice);
+    Ok(count)
+}
+
+
+
+
+pub fn dbfs_fuse_write(ino: u64, offset: i64, buf: &[u8]) -> DbfsResult<usize> {
     assert!(offset >= 0);
-    dbfs_common_write(ino as usize, buf, offset as u64).map_err(|_| ())
+    let res = dbfs_common_write(ino as usize, buf, offset as u64);
+    error!("dbfs write res:{:?}", res);
+    res
 }
 
 

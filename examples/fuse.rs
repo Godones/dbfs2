@@ -50,7 +50,7 @@ fn fuse() {
         )
         .get_matches();
 
-    env_logger::init();
+    //env_logger::init();
     let mountpoint = matches.value_of("MOUNT_POINT").unwrap();
     let mut options = vec![MountOption::FSName("dbfs".to_string())];
     if matches.contains_id("auto_unmount") {
@@ -59,13 +59,13 @@ fn fuse() {
     options.push(MountOption::DefaultPermissions);
 
     let fs = DbfsFuse::new(
-        matches.contains_id("direct-io"),
+        true,
         matches.contains_id("suid"),
     );
     options.push(MountOption::AllowOther);
     options.push(MountOption::RW);
     options.push(MountOption::Async);
-    options.push(MountOption::CUSTOM("readdir_ino".to_string()));
+    options.push(MountOption::CUSTOM("direct_io readdir_ino".to_string()));
 
     println!("options: {:?}",options);
     fuser::mount2(fs, mountpoint, &options).unwrap();

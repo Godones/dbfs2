@@ -24,9 +24,9 @@
 #
 
 set mode quit alldone
-set $dir=/home/godones/projects/os-module/dbfs2/bench/dbfs
-set $nfiles=130000
-set $meandirwidth=130000
+set $dir=/home/godones/projects/os-module/dbfs2/bench/dbfss
+set $nfiles=100000
+set $meandirwidth=1000000
 set $filesize=cvar(type=cvar-gamma,parameters=mean:16384;gamma:1.5)
 set $nthreads=16
 set $iosize=1m
@@ -51,10 +51,11 @@ define process name=filereader,instances=1
     flowop openfile name=openfile4,filesetname=bigfileset,fd=1
     flowop readwholefile name=readfile4,fd=1,iosize=$iosize
     flowop closefile name=closefile4,fd=1
-    flowop finishoncount name=finish, value=7000000
+    flowop finishoncount name=finish, value=200000
   }
 }
 
 echo  "Varmail Version 3.0 personality successfully loaded"
 
-psrun -10
+
+run

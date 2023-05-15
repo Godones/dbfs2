@@ -1,6 +1,5 @@
 #![feature(error_in_core)]
 #![cfg_attr(not(test), no_std)]
-#![allow(unused)]
 extern crate alloc;
 
 mod dir;
@@ -16,7 +15,7 @@ use buddy_system_allocator::LockedHeap;
 use jammdb::DB;
 use log::error;
 
-use spin::{Mutex, Once};
+use spin::{Once};
 
 pub use fs_type::DBFS;
 pub mod extend;
