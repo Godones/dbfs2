@@ -79,7 +79,7 @@ pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, repl
     }
     error!("IoSlice len :{}",res_slice.len());
     if count != need_size{
-        for i in 0..(need_size-count)/SLICE_SIZE{
+        for _i in 0..(need_size-count)/SLICE_SIZE{
             let ptr = tmp.as_ptr();
             let data = unsafe{
                 std::slice::from_raw_parts(ptr,SLICE_SIZE)

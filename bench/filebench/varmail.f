@@ -24,7 +24,7 @@
 #
 
 set mode quit alldone
-set $dir=/home/godones/projects/os-module/dbfs2/bench/dbfss
+set $dir=/home/godones/projects/os-module/dbfs2/bench/dbfs
 set $nfiles=100000
 set $meandirwidth=1000000
 set $filesize=cvar(type=cvar-gamma,parameters=mean:16384;gamma:1.5)

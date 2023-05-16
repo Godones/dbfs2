@@ -23,7 +23,7 @@ use log::{error, info, warn};
 use std::ffi::OsStr;
 use std::time::Duration;
 
-use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_releasedir, dbfs_fuse_special_read, dbfs_fuse_write};
+use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_releasedir, dbfs_fuse_write};
 use crate::fuse::inode::{
     dbfs_fuse_create, dbfs_fuse_fallocate, dbfs_fuse_lookup, dbfs_fuse_mkdir, dbfs_fuse_mknod,
     dbfs_fuse_rename, dbfs_fuse_rmdir, dbfs_fuse_truncate,
@@ -360,7 +360,7 @@ impl Filesystem for DbfsFuse {
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        let mut data = vec![0u8; size as usize];
+        let _data = vec![0u8; size as usize];
         let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align(size as usize, 8).unwrap()).unwrap();
         let data = unsafe{
             std::slice::from_raw_parts_mut(ptr.as_ptr() as *mut u8, size as usize)

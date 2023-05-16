@@ -17,7 +17,7 @@ use jammdb::{
 };
 use rvfs::warn;
 use std::fs::OpenOptions;
-use std::os::unix::fs::OpenOptionsExt;
+
 use std::path::Path;
 use spin::{Once};
 
@@ -253,23 +253,23 @@ impl IndexByPageID for IndexByPageIDImpl {
         let start = page_id as usize * page_size;
         let end = start + page_size;
 
-        let size = self.map.len();
-        let page_size = 4096; // 页面大小为 4KB
-        let pages_to_read = 100; // 预读取的页面数量为 100
-        let start_page = (size / page_size) as usize; // 映射区域中的最后一页
-        let madv_flags = libc::MADV_WILLNEED | libc::MADV_SEQUENTIAL;
-        unsafe {
-            libc::madvise(
-                self.map.as_ptr() as *mut libc::c_void,
-                size as usize,
-                libc::MADV_WILLNEED,
-            );
-            libc::madvise(
-                self.map.as_ptr().add(start_page * page_size) as *mut libc::c_void,
-                pages_to_read * page_size,
-                madv_flags,
-            );
-        }
+        // let size = self.map.len();
+        // let page_size = 4096; // 页面大小为 4KB
+        // let pages_to_read = 100; // 预读取的页面数量为 100
+        // let start_page = (size / page_size) as usize; // 映射区域中的最后一页
+        // let madv_flags = libc::MADV_WILLNEED | libc::MADV_SEQUENTIAL;
+        // unsafe {
+        //     libc::madvise(
+        //         self.map.as_ptr() as *mut libc::c_void,
+        //         size as usize,
+        //         libc::MADV_WILLNEED,
+        //     );
+        //     libc::madvise(
+        //         self.map.as_ptr().add(start_page * page_size) as *mut libc::c_void,
+        //         pages_to_read * page_size,
+        //         madv_flags,
+        //     );
+        // }
 
 
         Ok(&self.map[start..end])
