@@ -1,6 +1,5 @@
 #![feature(error_in_core)]
 #![cfg_attr(not(test), no_std)]
-#![allow(unused)]
 extern crate alloc;
 
 mod dir;
@@ -8,17 +7,27 @@ mod file;
 mod fs_type;
 mod inode;
 
+use alloc::alloc::alloc;
 use alloc::sync::Arc;
+use core::alloc::Layout;
 use core::ops::{Deref, DerefMut};
+use buddy_system_allocator::LockedHeap;
 use jammdb::DB;
+use log::error;
 
-use spin::Once;
+use spin::{Once};
 
 pub use fs_type::DBFS;
 pub mod extend;
 
+pub use file::FLAG;
+
+
 #[cfg(feature = "fuse")]
 pub mod fuse;
+
+#[cfg(feature = "fuse")]
+extern crate std;
 
 mod attr;
 mod common;
@@ -99,3 +108,47 @@ pub const SLICE_SIZE:usize = 4096;
 
 #[cfg(feature = "sli8k")]
 pub const SLICE_SIZE:usize = 8192;
+
+#[cfg(feature = "sli32k")]
+pub const SLICE_SIZE:usize = 8192 * 2 * 2;
+
+static BUDDY_ALLOCATOR:LockedHeap<32>  = LockedHeap::empty();
+const MAX_BUF_SIZE:usize = 8*1024*1024; // 8MB
+
+fn init_cache(){
+    error!("alloc {}MB for cache",8);
+    unsafe{
+        let ptr = alloc(Layout::from_size_align_unchecked(MAX_BUF_SIZE,8));
+        BUDDY_ALLOCATOR.lock().init(ptr as usize,MAX_BUF_SIZE);
+    };
+    error!("alloc ok");
+}
+
+
+fn copy_data(src:*const u8,dest:*mut u8,len:usize){
+    if src as usize % 16 == 0 && dest as usize % 16 == 0 && len % 16 == 0{
+        unsafe {
+            (dest as *mut u128)
+                .copy_from_nonoverlapping(src as *const u128, len/16);
+        }
+    }else if src as usize % 8 == 0 && dest as usize % 8 == 0 && len % 8 == 0{
+        unsafe {
+            (dest as *mut u64)
+                .copy_from_nonoverlapping(src as *const u64, len/8);
+        }
+    }else if src as usize % 4 == 0 && dest as usize % 4 == 0 && len % 4 == 0{
+        unsafe {
+            (dest as *mut u32)
+                .copy_from_nonoverlapping(src as *const u32, len/4);
+        }
+    }else if src as usize % 2 == 0 && dest as usize % 2 == 0 && len % 2 == 0{
+        unsafe {
+            (dest as *mut u16)
+                .copy_from_nonoverlapping(src as *const u16, len/2);
+        }
+    }else{
+        unsafe {
+            dest.copy_from_nonoverlapping(src, len);
+        }
+    }
+}

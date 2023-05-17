@@ -13,25 +13,31 @@ bitflags = "1.3.2"
 dbop = {git = "https://github.com/os-module/dbop.git"}
 preprint = "0.1.0"
 onlyerror = {version =  "0.1",default-features = false }
+buddy_system_allocator = {version = "0.9.0"}
 
-fuser = {version = "0.12.0", optional = true}
+#fuser = {version = "0.12.0", optional = true}
+fuser = {path = "../../fuser",optional=true}
 libc = {version = "0.2.51",optional = true}
 core2 = {version = "0.4.0",default-features = false,optional = true}
 memmap2 = {version = "0.5.10",optional = true}
 downcast = {version = "0.11.0",optional = true}
+rand = {version = "0.8.5",optional = true }
+smallvec = {version = "1.6.1",optional = true}
 log = "0.4.17"
 
 [features]
-default = ["rvfs","sli4k"]
+default = ["rvfs","sli32k"]
 rvfs = []
-fuse = ["fuser","libc","core2","memmap2","downcast","fuser/abi-7-19","fuser/abi-7-16","fuser/abi-7-28"]
+fuse = ["rand","fuser","libc","core2","memmap2","downcast","fuser/abi-7-19","fuser/abi-7-16","fuser/abi-7-28","smallvec"]
 sli512 = []
+sli8k = []
 sli4k = []
 sli1k = []
+sli32k = []
 
 [dev-dependencies]
 env_logger = "0.9.0"
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 serde = {version = "1.0.136",default-features = false,features = ["derive","alloc"]}
-dbfs2 = {path = "../dbfs2",default-features = false,features = ["fuse","rvfs","sli512"]}
+dbfs2 = {path = "../dbfs2",default-features = false,features = ["fuse","rvfs","sli32k"]}
 clap = { version = "3.0", features = ["cargo"] }

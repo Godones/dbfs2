@@ -1,12 +1,10 @@
 extern crate std;
-
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use core::fmt::Display;
-
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
 use crate::{init_dbfs, SLICE_SIZE};
@@ -19,19 +17,25 @@ use jammdb::{
 };
 use rvfs::warn;
 use std::fs::OpenOptions;
-use std::path::Path;
 
-pub struct MyOpenOptions {
+use std::path::Path;
+use spin::{Once};
+
+
+pub struct MyOpenOptions<const S:usize>{
     read: bool,
     write: bool,
     create: bool,
+    #[allow(unused)]
+    size: usize,
 }
-impl OpenOption for MyOpenOptions {
+impl <const S:usize> OpenOption for MyOpenOptions<S> {
     fn new() -> Self {
         MyOpenOptions {
             read: false,
             write: false,
             create: false,
+            size: S,
         }
     }
 
@@ -52,6 +56,8 @@ impl OpenOption for MyOpenOptions {
             .create(self.create)
             .open(path.to_string())
             .unwrap();
+        // file.set_len(S as u64).unwrap();
+        println!("file size is {}GB",file.metadata().unwrap().len()/1024/1024/1024);
         Ok(File::new(Box::new(FakeFile::new(file))))
     }
 
@@ -62,15 +68,21 @@ impl OpenOption for MyOpenOptions {
 }
 
 pub struct FakeFile {
-    file: std::fs::File,
+    file:  std::fs::File,
     size: usize,
 }
 
 impl FakeFile {
     pub fn new(file: std::fs::File) -> Self {
-        FakeFile { file, size: 0 }
+        let meta = file.metadata().unwrap();
+        let size = meta.len();
+        FakeFile {
+            file,
+            size:size as usize
+        }
     }
 }
+
 
 impl core2::io::Seek for FakeFile {
     fn seek(&mut self, pos: core2::io::SeekFrom) -> core2::io::Result<u64> {
@@ -99,10 +111,12 @@ impl core2::io::Write for FakeFile {
             .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "write error"))
     }
 
+    /// TODO: The first place for update
     fn flush(&mut self) -> core2::io::Result<()> {
-        self.file
-            .flush()
-            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "flush error"))
+        // self.file
+        //     .flush()
+        //     .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "flush error"))
+        Ok(())
     }
 }
 
@@ -112,9 +126,19 @@ impl FileExt for FakeFile {
     }
 
     fn allocate(&mut self, new_size: u64) -> IOResult<()> {
-        self.file
-            .set_len(new_size)
-            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"))
+        if self.size > new_size as usize{
+            return Ok(())
+        }else {
+            // panic!("Don't need allocate, the new size is {}MB, old size is {}",new_size/1024/1024,self.size/1024/1024);
+            let res =
+            self.file
+                .set_len(new_size)
+                .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"));
+            if res.is_ok(){
+                self.size = new_size as usize
+            }
+            res
+        }
     }
 
     fn unlock(&self) -> IOResult<()> {
@@ -130,15 +154,18 @@ impl FileExt for FakeFile {
         Ok(meta)
     }
 
+
+    /// TODO: The first place for update
     fn sync_all(&self) -> IOResult<()> {
-        self.file
-            .sync_all()
-            .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "sync_all error"))
+        // self.file
+        //     .sync_all()
+        //     .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "sync_all error"))
+        Ok(())
     }
 
     /// no meaning
     fn size(&self) -> usize {
-        self.file.metadata().unwrap().len() as usize
+        self.size
     }
 
     /// no meaning
@@ -150,8 +177,16 @@ impl FileExt for FakeFile {
 impl DbFile for FakeFile {}
 
 #[derive(Debug)]
-struct FakePath {
+pub struct FakePath {
     path: std::path::PathBuf,
+}
+
+impl FakePath {
+    pub fn new(path: &str) -> Self {
+        FakePath {
+            path: std::path::PathBuf::from(path),
+        }
+    }
 }
 
 impl Display for FakePath {
@@ -162,40 +197,51 @@ impl Display for FakePath {
 
 impl PathLike for FakePath {
     fn exists(&self) -> bool {
-        self.path.exists()
+        // self.path.exists()
+        false
     }
 }
 
 pub struct FakeMMap;
 
+
 struct IndexByPageIDImpl {
-    map: memmap2::Mmap,
+    // map: memmap2::Mmap,
+    map:memmap2::Mmap
 }
+
+static MMAP:Once<Arc<IndexByPageIDImpl>> = Once::new();
+
 impl MemoryMap for FakeMMap {
     fn do_map(&self, file: &mut File) -> IOResult<Arc<dyn IndexByPageID>> {
-        let file = &file.file;
-        let fake_file = file.downcast_ref::<FakeFile>().unwrap();
-        let res = mmap(&fake_file.file, false);
-
-        if res.is_err() {
-            warn!("mmap res: {:?}", res);
-            return Err(core2::io::Error::new(
-                core2::io::ErrorKind::Other,
-                "not support",
-            ));
+        if !MMAP.is_completed(){
+            let file = &file.file;
+            let fake_file = file.downcast_ref::<FakeFile>().unwrap();
+            let res = mmap(&fake_file.file, false);
+            if res.is_err() {
+                warn!("mmap res: {:?}", res);
+                return Err(core2::io::Error::new(
+                    core2::io::ErrorKind::Other,
+                    "not support",
+                ));
+            }
+            let map = res.unwrap();
+            let map = Arc::new(IndexByPageIDImpl{map});
+            MMAP.call_once(||map);
         }
-        let map = res.unwrap();
-        Ok(Arc::new(IndexByPageIDImpl { map }))
+        Ok(MMAP.get().unwrap().clone())
     }
 }
 
 /// populate
 fn mmap(file: &std::fs::File, populate: bool) -> Result<memmap2::Mmap, ()> {
     use memmap2::MmapOptions;
+    let size = file.metadata().unwrap().len() as usize;
     let mut options = MmapOptions::new();
     if populate {
         options.populate();
     }
+    options.len(size);
     let mmap = unsafe { options.map(file).unwrap() };
     // On Unix we advice the OS that page access will be random.
     mmap.advise(memmap2::Advice::Random).unwrap();
@@ -206,6 +252,26 @@ impl IndexByPageID for IndexByPageIDImpl {
     fn index(&self, page_id: u64, page_size: usize) -> IOResult<&[u8]> {
         let start = page_id as usize * page_size;
         let end = start + page_size;
+
+        // let size = self.map.len();
+        // let page_size = 4096; // 页面大小为 4KB
+        // let pages_to_read = 100; // 预读取的页面数量为 100
+        // let start_page = (size / page_size) as usize; // 映射区域中的最后一页
+        // let madv_flags = libc::MADV_WILLNEED | libc::MADV_SEQUENTIAL;
+        // unsafe {
+        //     libc::madvise(
+        //         self.map.as_ptr() as *mut libc::c_void,
+        //         size as usize,
+        //         libc::MADV_WILLNEED,
+        //     );
+        //     libc::madvise(
+        //         self.map.as_ptr().add(start_page * page_size) as *mut libc::c_void,
+        //         pages_to_read * page_size,
+        //         madv_flags,
+        //     );
+        // }
+
+
         Ok(&self.map[start..end])
     }
 
@@ -214,9 +280,11 @@ impl IndexByPageID for IndexByPageIDImpl {
     }
 }
 
+
 pub fn init_dbfs_fuse<T: AsRef<Path>>(path: T, size: u64) {
+    use super::FILE_SIZE;
     let path = path.as_ref().to_str().unwrap();
-    let db = DB::open::<MyOpenOptions, _>(Arc::new(FakeMMap), path).unwrap();
+    let db = DB::open::<MyOpenOptions<FILE_SIZE>, _>(Arc::new(FakeMMap), path).unwrap();
     init_db(&db, size);
     test_dbfs(&db);
     init_dbfs(db);

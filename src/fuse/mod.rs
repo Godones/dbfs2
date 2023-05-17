@@ -2,25 +2,28 @@ pub mod attr;
 pub mod file;
 pub mod inode;
 pub mod link;
-mod mkfs;
+pub mod mkfs;
 
 extern crate std;
 
+
 use alloc::sync::Arc;
 use alloc::vec;
-use alloc::vec::Vec;
+use std::alloc::Layout;
+
+
 use downcast::_std::path::Path;
 use downcast::_std::println;
 use downcast::_std::time::SystemTime;
 use fuser::consts::FOPEN_DIRECT_IO;
-use fuser::{FileAttr, Filesystem, fuse_forget_one, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow};
+use fuser::{FileAttr, Filesystem, fuse_forget_one, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow};
 use jammdb::DB;
 use libc::{c_int, ENOENT};
 use log::{error, info, warn};
 use std::ffi::OsStr;
 use std::time::Duration;
 
-use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_write};
+use crate::fuse::file::{dbfs_fuse_copy_file_range, dbfs_fuse_open, dbfs_fuse_opendir, dbfs_fuse_read, dbfs_fuse_readdir, dbfs_fuse_readdirplus, dbfs_fuse_releasedir, dbfs_fuse_write};
 use crate::fuse::inode::{
     dbfs_fuse_create, dbfs_fuse_fallocate, dbfs_fuse_lookup, dbfs_fuse_mkdir, dbfs_fuse_mknod,
     dbfs_fuse_rename, dbfs_fuse_rmdir, dbfs_fuse_truncate,
@@ -34,20 +37,20 @@ use crate::fuse::attr::{
     dbfs_fuse_utimens,
 };
 use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, dbfs_fuse_unlink};
-use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions};
-use crate::init_dbfs;
+use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions, FakePath};
+use crate::{BUDDY_ALLOCATOR, init_cache, init_dbfs};
 pub use mkfs::init_dbfs_fuse;
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
                                               // const FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
-const FILE_SIZE: u64 = 9999999999999999;
+// const FILE_SIZE: u64 = 9999999999999999;
+const FILE_SIZE:usize = 1024*1024*1024*20; // 6GB
 
-const MAX_BUF_SIZE:usize = 1024*1024*2; // 2MB
 
 
 pub struct DbfsFuse {
     direct_io: bool,
-    suid_support: bool,
+    _suid_support: bool,
 }
 
 impl DbfsFuse {
@@ -65,7 +68,7 @@ impl DbfsFuse {
         {
             Self {
                 direct_io,
-                suid_support: false,
+                _suid_support: false,
             }
         }
     }
@@ -73,11 +76,12 @@ impl DbfsFuse {
 
 impl Filesystem for DbfsFuse {
     fn init(&mut self, _req: &Request<'_>, _config: &mut KernelConfig) -> Result<(), c_int> {
-        let path = "./test.dbfs";
-        let db = DB::open::<MyOpenOptions, _>(Arc::new(FakeMMap), path).map_err(|_| -1)?; // TODO: error handling
-        init_db(&db, FILE_SIZE);
+        let path = "./bench/dbfs.img";
+        let db = DB::open::<MyOpenOptions<FILE_SIZE>,FakePath>(Arc::new(FakeMMap), FakePath::new(path)).map_err(|_| -1)?; // TODO: error handling
+        init_db(&db, FILE_SIZE as u64);
         test_dbfs(&db);
         init_dbfs(db);
+        init_cache();
         let uid = unsafe { libc::getuid() };
         let gid = unsafe { libc::getgid() };
         let time = DbfsTimeSpec::from(SystemTime::now());
@@ -113,7 +117,7 @@ impl Filesystem for DbfsFuse {
         info!("forget");
     }
 
-    fn batch_forget(&mut self, req: &Request<'_>, nodes: &[fuse_forget_one]) {
+    fn batch_forget(&mut self, _req: &Request<'_>, nodes: &[fuse_forget_one]) {
         for node in nodes{
             warn!("batch_forget: {}", node.nodeid);
         }
@@ -344,6 +348,7 @@ impl Filesystem for DbfsFuse {
         }
     }
 
+
     fn read(
         &mut self,
         _req: &Request<'_>,
@@ -355,12 +360,18 @@ impl Filesystem for DbfsFuse {
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        let mut data = vec![0u8; size as usize];
-        let res = dbfs_fuse_read(ino, offset, data.as_mut_slice());
+        let _data = vec![0u8; size as usize];
+        let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align(size as usize, 8).unwrap()).unwrap();
+        let data = unsafe{
+            std::slice::from_raw_parts_mut(ptr.as_ptr() as *mut u8, size as usize)
+        };
+        let res = dbfs_fuse_read(ino, offset, data);
         match res {
-            Ok(x) => reply.data(data[..x].as_ref()),
+            Ok(x) => reply.data(&data[..x]),
             Err(_) => reply.error(ENOENT),
         }
+        BUDDY_ALLOCATOR.lock().dealloc(ptr, Layout::from_size_align(size as usize, 8).unwrap());
+        // dbfs_fuse_special_read(ino as usize, offset, size as usize, reply).unwrap();
     }
 
     fn write(
@@ -377,7 +388,7 @@ impl Filesystem for DbfsFuse {
     ) {
         let res = dbfs_fuse_write(ino, offset, data);
         match res {
-            Ok(_) => reply.written(res.unwrap() as u32),
+            Ok(x) => reply.written(x as u32),
             Err(_) => reply.error(ENOENT),
         }
     }
@@ -402,7 +413,6 @@ impl Filesystem for DbfsFuse {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        error!("release not implemented");
         reply.ok();
     }
 
@@ -460,12 +470,12 @@ impl Filesystem for DbfsFuse {
     fn releasedir(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
+        ino: u64,
         _fh: u64,
         _flags: i32,
         reply: ReplyEmpty,
     ) {
-        warn!("releasedir always ok");
+        dbfs_fuse_releasedir(ino).unwrap();
         reply.ok()
     }
     fn fsyncdir(
@@ -620,19 +630,19 @@ impl Filesystem for DbfsFuse {
     //
     // }
 
-    fn ioctl(
-        &mut self,
-        _req: &Request<'_>,
-        _ino: u64,
-        _fh: u64,
-        _flags: u32,
-        _cmd: u32,
-        _in_data: &[u8],
-        _out_size: u32,
-        reply: ReplyIoctl,
-    ) {
-        todo!()
-    }
+    // fn ioctl(
+    //     &mut self,
+    //     _req: &Request<'_>,
+    //     _ino: u64,
+    //     _fh: u64,
+    //     _flags: u32,
+    //     _cmd: u32,
+    //     _in_data: &[u8],
+    //     _out_size: u32,
+    //     reply: ReplyIoctl,
+    // ) {
+    //     todo!()
+    // }
 
     // fn lseek(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _offset: i64, _whence: i32, reply: ReplyLseek) {
     //     todo!()
