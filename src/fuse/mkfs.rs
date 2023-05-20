@@ -7,7 +7,7 @@ use alloc::sync::Arc;
 use core::fmt::Display;
 use crate::common::DbfsTimeSpec;
 use crate::fs_type::dbfs_common_root_inode;
-use crate::{init_dbfs, SLICE_SIZE};
+use crate::{init_dbfs, SLICE_SIZE, usize};
 use downcast::_std::io::{Read, Seek, Write};
 use downcast::_std::println;
 use downcast::_std::time::SystemTime;
@@ -56,7 +56,7 @@ impl <const S:usize> OpenOption for MyOpenOptions<S> {
             .create(self.create)
             .open(path.to_string())
             .unwrap();
-        // file.set_len(S as u64).unwrap();
+        file.set_len(S as u64).unwrap();
         println!("file size is {}GB",file.metadata().unwrap().len()/1024/1024/1024);
         Ok(File::new(Box::new(FakeFile::new(file))))
     }
@@ -68,7 +68,7 @@ impl <const S:usize> OpenOption for MyOpenOptions<S> {
 }
 
 pub struct FakeFile {
-    file:  std::fs::File,
+    pub file: std::fs::File,
     size: usize,
 }
 
@@ -197,8 +197,10 @@ impl Display for FakePath {
 
 impl PathLike for FakePath {
     fn exists(&self) -> bool {
-        // self.path.exists()
-        false
+        let flag = self.path.exists();
+        println!("path exists: {}", flag);
+        // false
+        flag
     }
 }
 
@@ -296,8 +298,13 @@ pub fn init_dbfs_fuse<T: AsRef<Path>>(path: T, size: u64) {
 
 pub fn init_db(db: &DB, size: u64) {
     let tx = db.tx(true).unwrap();
-    let bucket = tx.get_or_create_bucket("super_blk").unwrap();
-    bucket.put("continue_number", 0usize.to_be_bytes()).unwrap();
+    let bucket = tx.get_bucket("super_blk");
+    let bucket = if bucket.is_ok() {
+        return;
+    }else {
+        tx.create_bucket("super_blk").unwrap()
+    };
+    bucket.put("continue_number", 1usize.to_be_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
     bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
     bucket.put("disk_size", size.to_be_bytes()).unwrap(); //16MB
@@ -308,8 +315,12 @@ pub fn test_dbfs(db: &DB) {
     let tx = db.tx(true).unwrap();
     tx.buckets().for_each(|(name, x)| {
         let key = name.name();
-        let key = String::from_utf8_lossy(key).to_string();
-        println!("BUCKET:{}", key);
+        if key.len()==8{
+            println!("BUCKET-INODE:{}", usize!(key));
+        }else {
+            let s_key = String::from_utf8(key.to_vec());
+            println!("BUCKET:{:?}",s_key.unwrap());
+        };
         show_bucket(0, x);
     });
 }
@@ -318,7 +329,12 @@ fn show_bucket(tab: usize, bucket: Bucket) {
     bucket.cursor().for_each(|x| match x {
         Data::Bucket(x) => {
             let key = x.name().to_owned();
-            let value = format!("BUCKET:{:?}", String::from_utf8_lossy(&key).to_string());
+            let value = if key.len()==8{
+                format!("BUCKET-INODE:{}", usize!(key.as_slice()))
+            }else {
+                let s_key = String::from_utf8(key.clone());
+                format!("BUCKET:{:?}", s_key.unwrap())
+            };
             let v = tab * 2 + value.len();
             println!("{value:>w$}", w = v, value = value);
             let bucket = bucket.get_bucket(key).unwrap();
@@ -328,7 +344,11 @@ fn show_bucket(tab: usize, bucket: Bucket) {
             let key = kv.key();
             let value = kv.value();
             let key = String::from_utf8_lossy(key).to_string();
-            let value = format!("{}:{:?}", key, value);
+            let value = if value.len() != SLICE_SIZE{
+                format!("{}:{:?}", key, value)
+            }else {
+                format!("{}:{:?}", key, value.len())
+            };
             let v = tab * 2 + value.len();
             println!("{value:>w$}", w = v, value = value);
         }

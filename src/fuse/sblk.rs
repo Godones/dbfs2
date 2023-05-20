@@ -1,0 +1,23 @@
+use std::io::Write;
+use std::println;
+use crate::clone_db;
+use crate::fs_type::dbfs_common_umount;
+use crate::fuse::mkfs::{FakeFile, test_dbfs};
+
+pub fn dbfs_fuse_destroy() {
+    println!("dbfs_fuse_destroy");
+    dbfs_common_umount().unwrap();
+    {
+        let db = clone_db();
+        let mut file = db.file();
+        println!("Get file from db");
+        let file = &mut file.file;
+        let fake_file = file.downcast_mut::<FakeFile>().unwrap();
+        fake_file.file.sync_all().unwrap();
+        fake_file.file.flush().unwrap();
+        println!("sync_all and flush");
+    }
+    let db = clone_db();
+    test_dbfs(&db);
+    println!("dbfs_fuse_destroy end");
+}

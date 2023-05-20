@@ -3,6 +3,7 @@ pub mod file;
 pub mod inode;
 pub mod link;
 pub mod mkfs;
+pub mod sblk;
 
 extern crate std;
 
@@ -13,7 +14,7 @@ use std::alloc::Layout;
 
 
 use downcast::_std::path::Path;
-use downcast::_std::println;
+
 use downcast::_std::time::SystemTime;
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, Filesystem, fuse_forget_one, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow};
@@ -40,6 +41,7 @@ use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, d
 use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions, FakePath};
 use crate::{BUDDY_ALLOCATOR, init_cache, init_dbfs};
 pub use mkfs::init_dbfs_fuse;
+use crate::fuse::sblk::dbfs_fuse_destroy;
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
                                               // const FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
@@ -76,7 +78,7 @@ impl DbfsFuse {
 
 impl Filesystem for DbfsFuse {
     fn init(&mut self, _req: &Request<'_>, _config: &mut KernelConfig) -> Result<(), c_int> {
-        let path = "./bench/dbfs.img";
+        let path = "./my-database.db";
         let db = DB::open::<MyOpenOptions<FILE_SIZE>,FakePath>(Arc::new(FakeMMap), FakePath::new(path)).map_err(|_| -1)?; // TODO: error handling
         init_db(&db, FILE_SIZE as u64);
         test_dbfs(&db);
@@ -90,12 +92,9 @@ impl Filesystem for DbfsFuse {
     }
     /// Clean up filesystem
     fn destroy(&mut self) {
-        // TODO: close db
-        //
         // we need write back the metadata
         // 1. continue_number to super_block
-        // 2. disk_size to super_blk
-        error!("filesystem exit");
+        dbfs_fuse_destroy();
     }
     /// The lookup() method is called when the kernel wants to know about a file.
     ///
@@ -180,10 +179,6 @@ impl Filesystem for DbfsFuse {
             match res {
                 Ok(attr) => {
                     let attr: FileAttr = attr.into();
-                    println!(
-                        "************* attr: {:?} {:?} {:?}",
-                        attr.atime, attr.mtime, attr.ctime
-                    );
                     reply.attr(&TTL, &attr)
                 }
                 Err(x) => reply.error(x as i32),

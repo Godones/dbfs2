@@ -22,7 +22,7 @@ pub fn dbfs_fuse_read(ino: u64, offset: i64, buf: &mut [u8]) -> DbfsResult<usize
 }
 
 //
-pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, repl:ReplyData) -> DbfsResult<usize> {
+pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, _repl:ReplyData) -> DbfsResult<usize> {
     assert!(old_offset >= 0);
     let offset = old_offset as u64;
     let db = clone_db();
@@ -48,8 +48,6 @@ pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, repl
         if value.is_none(){
             // copy tmp buf to buf
             let len = min(need_size - count, real_size.saturating_sub(offset as usize));
-
-            // buf[count..count + len].copy_from_slice(&tmp[offset as usize..offset as usize + len]);
             let ptr = tmp.as_ptr();
             let data = unsafe{
                 std::slice::from_raw_parts(ptr,SLICE_SIZE)
@@ -62,7 +60,6 @@ pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, repl
             let value = value.unwrap();
             let value = value.value();
             let len = min(need_size - count, real_size.saturating_sub(offset as usize));
-            // buf[count..count + len].copy_from_slice(&value[offset as usize..offset as usize + len]);
             let ptr = value.as_ptr();
             let data = unsafe{
                 std::slice::from_raw_parts(ptr,SLICE_SIZE)
@@ -97,7 +94,7 @@ pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, repl
     let total = res_slice.iter().fold(0,|acc,x|acc+x.len());
     println!("read_num:{},offset:{},count:{},need:{},total:{}",start_num-old_start,old_offset,count,need_size,total);
 
-    repl.data2(&res_slice);
+    // repl.data2(&res_slice);
     Ok(count)
 }
 

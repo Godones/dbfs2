@@ -70,7 +70,11 @@ fn dbfs_get_super_blk(
     ddebug!("dbfs_get_super_blk end");
     sb_blk
 }
-fn dbfs_kill_super_blk(_super_blk: Arc<SuperBlock>) {}
+
+
+fn dbfs_kill_super_blk(_super_blk: Arc<SuperBlock>) {
+    dbfs_common_umount().unwrap();
+}
 
 fn dbfs_create_simple_super_blk(
     fs_type: Arc<FileSystemType>,
@@ -94,8 +98,6 @@ fn dbfs_create_simple_super_blk(
     // set the next inode number
     DBFS_INODE_NUMBER.store(continue_number, core::sync::atomic::Ordering::SeqCst);
     init_cache();
-
-
     let blk_size = bucket.get_kv("blk_size").unwrap();
     let blk_size = u32!(blk_size.value());
     let magic = bucket.get_kv("magic").unwrap();
@@ -248,4 +250,17 @@ pub fn dbfs_common_statfs(
         name,
     };
     Ok(stat)
+}
+
+
+
+pub fn dbfs_common_umount()->DbfsResult<()>{
+    let db = clone_db();
+    let tx = db.tx(true)?;
+    let bucket = tx.get_bucket("super_blk")?;
+    // write back continue_number
+    let c_number = DBFS_INODE_NUMBER.load(core::sync::atomic::Ordering::SeqCst);
+    bucket.put("continue_number", c_number.to_be_bytes())?;
+    tx.commit()?;
+    Ok(())
 }
