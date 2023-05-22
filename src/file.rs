@@ -1,6 +1,6 @@
-use crate::{BUDDY_ALLOCATOR, clone_db, copy_data, SLICE_SIZE, u16, usize};
+use crate::{BUCKET_DATA_SIZE, BUDDY_ALLOCATOR, clone_db, copy_data, SLICE_SIZE, u16, u32, usize};
 
-
+use core::ops::Range;
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::{format, vec};
@@ -82,103 +82,104 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     // TODO! second version
     let tmp = [0u8; SLICE_SIZE];
     let mut start_num = offset / SLICE_SIZE as u64;
-    let mut offset = offset % SLICE_SIZE as u64;
-    let mut count = 0;
-    loop {
-        let key = generate_data_key_with_number(start_num as u32);
-        let value = bucket.get_kv(key);
-        let real_size = min(size - start_num as usize * SLICE_SIZE, SLICE_SIZE);
-        if value.is_none(){
-            // copy tmp buf to buf
-            let len = min(buf.len() - count, real_size.saturating_sub(offset as usize));
-            buf[count..count + len].copy_from_slice(&tmp[offset as usize..offset as usize + len]);
-            count += len;
-            offset  = (offset + len as u64) % SLICE_SIZE as u64;
-        }else {
-            let value = value.unwrap();
-            let value = value.value();
-            let len = min(buf.len() - count, real_size.saturating_sub(offset as usize));
-            buf[count..count + len].copy_from_slice(&value[offset as usize..offset as usize + len]);
-            count += len;
-            offset  = (offset + len as u64) % SLICE_SIZE as u64;
-        }
-        if count == buf.len() || count == size {
-            break;
-        }
-        start_num += 1;
-    }
+    // let mut offset = offset % SLICE_SIZE as u64;
+    // let mut count = 0;
+    // loop {
+    //     let key = generate_data_key_with_number(start_num as u32);
+    //     let value = bucket.get_kv(key);
+    //     let real_size = min(size - start_num as usize * SLICE_SIZE, SLICE_SIZE);
+    //     if value.is_none(){
+    //         // copy tmp buf to buf
+    //         let len = min(buf.len() - count, real_size.saturating_sub(offset as usize));
+    //         buf[count..count + len].copy_from_slice(&tmp[offset as usize..offset as usize + len]);
+    //         count += len;
+    //         offset  = (offset + len as u64) % SLICE_SIZE as u64;
+    //     }else {
+    //         let value = value.unwrap();
+    //         let value = value.value();
+    //         let len = min(buf.len() - count, real_size.saturating_sub(offset as usize));
+    //         buf[count..count + len].copy_from_slice(&value[offset as usize..offset as usize + len]);
+    //         count += len;
+    //         offset  = (offset + len as u64) % SLICE_SIZE as u64;
+    //     }
+    //     if count == buf.len() || count == size {
+    //         break;
+    //     }
+    //     start_num += 1;
+    // }
 
 
     // TODO! first version
-    // let mut offset = offset % SLICE_SIZE as u64;
-    // let mut buf_offset = 0;
-    // let end_num = (offset + buf.len() as u64) / SLICE_SIZE as u64 + 1;
-    // let f_end_num = size / SLICE_SIZE + 1;
-    //
-    // let end_num = min(end_num, f_end_num as u64);
-    //
-    // warn!(
-    //     "start_num: {:?}, end_num: {:?}, file_end_num:{:?}",start_num,end_num,f_end_num
-    // );
-    //
-    // let start_key = generate_data_key(start_num as u32);
-    // let end_key = generate_data_key(end_num as u32);
-    //
-    //
-    // let range = Range {
-    //     start: start_key.as_slice(),
-    //     end: end_key.as_slice(),
-    // };
-    // let iter = bucket.range(range);
-    // for data in iter {
-    //     match data {
-    //         Data::Bucket(_) => {
-    //             panic!("bucket in bucket")
-    //         }
-    //         Data::KeyValue(kv) => {
-    //             let value = kv.value();
-    //             let key = kv.key();
-    //
-    //             let index = key.splitn(2, |c| *c == b':').nth(1).unwrap();
-    //             let index = u32!(index);
-    //             debug!("key: {:?}", index);
-    //             if index as u64 != start_num {
-    //                 for i in start_num as u32..index {
-    //                     let current_size = i as usize * SLICE_SIZE; // offset = 1000 ,current_size >= SLICE_SIZE,1024 => offset= 1000 - SLICE_SIZE = 488
-    //                     let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,SLICE_SIZE)范围
-    //                     let real_size = min(size - current_size, SLICE_SIZE);
-    //                     let len = min(
-    //                         buf.len() - buf_offset,
-    //                         real_size.saturating_sub(value_offset),
-    //                     );
-    //                     buf[buf_offset..buf_offset + len]
-    //                         .copy_from_slice(&tmp[value_offset..value_offset + len]);
-    //                     buf_offset += len;
-    //                 }
-    //                 start_num = index as u64 + 1;
-    //             }
-    //             let current_size = index as usize * SLICE_SIZE; // offset = 1000 ,current_size >= SLICE_SIZE,1024 => offset= 1000 - SLICE_SIZE = 488
-    //             let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,SLICE_SIZE)范围
-    //             let real_size = min(size - current_size, SLICE_SIZE);
-    //             let len = min(
-    //                 buf.len() - buf_offset,
-    //                 real_size.saturating_sub(value_offset),
-    //             );
-    //             buf[buf_offset..buf_offset + len]
-    //                 .copy_from_slice(&value[value_offset..value_offset + len]);
-    //             buf_offset += len;
-    //             start_num += 1;
-    //             debug!( "read len: {}", len);
-    //         }
-    //     }
-    //     if buf_offset == buf.len() {
-    //         break;
-    //     }
-    // }
-    // Ok(buf_offset)
+    let end_num = (offset + buf.len() as u64) / SLICE_SIZE as u64 + 1;
+    let mut offset = offset % SLICE_SIZE as u64;
+    let mut buf_offset = 0;
+
+    let f_end_num = size / SLICE_SIZE + 1;
+
+    let end_num = min(end_num, f_end_num as u64);
+
+    warn!(
+        "start_num: {:?}, end_num: {:?}, file_end_num:{:?}",start_num,end_num,f_end_num
+    );
+
+    let start_key = generate_data_key_with_number(start_num as u32);
+    let end_key = generate_data_key_with_number(end_num as u32);
 
 
-   Ok(count)
+    let range = Range {
+        start: start_key.as_slice(),
+        end: end_key.as_slice(),
+    };
+    let iter = bucket.range(range);
+    for data in iter {
+        match data {
+            Data::Bucket(_) => {
+                panic!("bucket in bucket")
+            }
+            Data::KeyValue(kv) => {
+                let value = kv.value();
+                let key = kv.key();
+
+                let index = key.splitn(2, |c| *c == b':').nth(1).unwrap();
+                let index = u32!(index);
+                // debug!("key: {:?}", index);
+                if index as u64 != start_num {
+                    for i in start_num as u32..index {
+                        let current_size = i as usize * SLICE_SIZE; // offset = 1000 ,current_size >= SLICE_SIZE,1024 => offset= 1000 - SLICE_SIZE = 488
+                        let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,SLICE_SIZE)范围
+                        let real_size = min(size - current_size, SLICE_SIZE);
+                        let len = min(
+                            buf.len() - buf_offset,
+                            real_size.saturating_sub(value_offset),
+                        );
+                        buf[buf_offset..buf_offset + len]
+                            .copy_from_slice(&tmp[value_offset..value_offset + len]);
+                        buf_offset += len;
+                    }
+                    start_num = index as u64 + 1;
+                }
+                let current_size = index as usize * SLICE_SIZE; // offset = 1000 ,current_size >= SLICE_SIZE,1024 => offset= 1000 - SLICE_SIZE = 488
+                let value_offset = offset.saturating_sub(current_size as u64) as usize; // 一定位于(0,SLICE_SIZE)范围
+                let real_size = min(size - current_size, SLICE_SIZE);
+                let len = min(
+                    buf.len() - buf_offset,
+                    real_size.saturating_sub(value_offset),
+                );
+                buf[buf_offset..buf_offset + len]
+                    .copy_from_slice(&value[value_offset..value_offset + len]);
+                buf_offset += len;
+                start_num += 1;
+                warn!( "read len: {}", len);
+            }
+        }
+        if buf_offset == buf.len() {
+            break;
+        }
+    }
+    Ok(buf_offset)
+
+
+   // Ok(count)
 }
 pub static FLAG:AtomicBool = AtomicBool::new(false);
 /// we need think about how to write data to dbfs
@@ -208,23 +209,22 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     let mut ptrs = vec![];
     loop {
         let key = generate_data_key_with_number(num as u32);
-        #[cfg(feature = "fuse")]
-        let start = std::time::SystemTime::now();
-        let kv = bucket.get_kv(key.as_slice());
-        #[cfg(feature = "fuse")]
-        {
-            let end = std::time::SystemTime::now();
-            let duration = end.duration_since(start).unwrap();
-            if FLAG.load(core::sync::atomic::Ordering::Relaxed){
-                std::println!("get_kv: {:?}", duration);
-            }
-        }
-
         let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
-        let data = if kv.is_none(){
-            if len==SLICE_SIZE && offset==0{
-                unsafe { buf.as_ptr().add(count) }
-            }else {
+        let mut data = if len == SLICE_SIZE && offset == 0{
+            unsafe { buf.as_ptr().add(count) }
+        }else {
+            #[cfg(feature = "fuse")]
+            let start = std::time::SystemTime::now();
+            let kv = bucket.get_kv(key.as_slice());
+            #[cfg(feature = "fuse")]
+            {
+                let end = std::time::SystemTime::now();
+                let duration = end.duration_since(start).unwrap();
+                if FLAG.load(core::sync::atomic::Ordering::SeqCst){
+                    std::println!("get_kv:{} cost {:?}", num,duration);
+                }
+            }
+            if kv.is_none(){
                 let ptr = unsafe {
                     let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
                     ptr.unwrap().as_ptr()
@@ -234,10 +234,6 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
                 }
                 ptrs.push(ptr);
                 ptr as * const u8
-            }
-        }else {
-            if len==SLICE_SIZE && offset==0{
-                unsafe { buf.as_ptr().add(count) }
             }else {
                 let value = kv.as_ref().unwrap().value();
                 let ptr = unsafe {
@@ -253,6 +249,7 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
                 ptr as * const u8
             }
         };
+
         let data = unsafe{
             core::slice::from_raw_parts(data, SLICE_SIZE)
         };

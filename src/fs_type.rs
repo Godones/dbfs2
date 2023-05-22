@@ -132,12 +132,14 @@ fn dbfs_fill_super_block(sb_blk: Arc<SuperBlock>) -> StrResult<()> {
 fn dbfs_create_root_inode(sb_blk: Arc<SuperBlock>) -> StrResult<Arc<Inode>> {
     let count = dbfs_common_root_inode(0, 0, DbfsTimeSpec::default())
         .map_err(|_| "create root inode failed")?;
-    let first_number = DBFS_INODE_NUMBER.load(core::sync::atomic::Ordering::SeqCst);
-    assert_eq!(first_number, 2);
+
+    // let first_number = DBFS_INODE_NUMBER.load(core::sync::atomic::Ordering::SeqCst);
+    // assert_eq!(first_number, 2);
+
     // create a inode from super block
     let inode = create_tmp_inode_from_sb_blk(
         sb_blk.clone(),
-        first_number - 1,
+         1,
         InodeMode::S_DIR,
         0,
         DBFS_DIR_INODE_OPS,
@@ -157,7 +159,8 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: DbfsTimeSpec) -> DbfsRe
         // The root dir
         let permission = permission_from_mode(FileMode::FMODE_RDWR, InodeMode::S_DIR);
         let new_inode = tx.create_bucket(1usize.to_be_bytes()).unwrap();
-        DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        let old = DBFS_INODE_NUMBER.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        assert_eq!(old, 1);
         new_inode
             .put("mode", permission.bits().to_be_bytes())
             .unwrap();

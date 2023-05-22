@@ -170,13 +170,13 @@ fn dbfs_symlink(dir: Arc<Inode>, dentry: Arc<DirEntry>, target: &str) -> StrResu
 
 fn dbfs_lookup(dir: Arc<Inode>, dentry: Arc<DirEntry>) -> StrResult<()> {
     let number = dir.number;
-    let name = &dentry.access_inner().d_name;
-    let res = dbfs_common_lookup(number, name).map_err(|_| "dbfs_common_lookup failed")?;
+    let name = dentry.access_inner().d_name.clone();
+    let res = dbfs_common_lookup(number, &name).map_err(|_| "dbfs_common_lookup failed")?;
     let inode_mode = InodeMode::from(res.kind);
     // create a inode according to the data in db
     let n_inode = create_tmp_inode_from_sb_blk(
         dir.super_blk.upgrade().unwrap().clone(),
-        number,
+        res.ino,
         inode_mode,
         0,
         inode_ops_from_inode_mode(inode_mode),

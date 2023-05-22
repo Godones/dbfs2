@@ -18,6 +18,6 @@ pub fn dbfs_fuse_destroy() {
         println!("sync_all and flush");
     }
     let db = clone_db();
-    test_dbfs(&db);
+    //test_dbfs(&db);
     println!("dbfs_fuse_destroy end");
 }

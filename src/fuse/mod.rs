@@ -81,7 +81,7 @@ impl Filesystem for DbfsFuse {
         let path = "./my-database.db";
         let db = DB::open::<MyOpenOptions<FILE_SIZE>,FakePath>(Arc::new(FakeMMap), FakePath::new(path)).map_err(|_| -1)?; // TODO: error handling
         init_db(&db, FILE_SIZE as u64);
-        test_dbfs(&db);
+        //test_dbfs(&db);
         init_dbfs(db);
         init_cache();
         let uid = unsafe { libc::getuid() };

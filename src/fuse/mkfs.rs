@@ -176,7 +176,7 @@ impl FileExt for FakeFile {
 
 impl DbFile for FakeFile {}
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct FakePath {
     path: std::path::PathBuf,
 }
@@ -286,9 +286,10 @@ impl IndexByPageID for IndexByPageIDImpl {
 pub fn init_dbfs_fuse<T: AsRef<Path>>(path: T, size: u64) {
     use super::FILE_SIZE;
     let path = path.as_ref().to_str().unwrap();
+    let path = FakePath::new(path);
     let db = DB::open::<MyOpenOptions<FILE_SIZE>, _>(Arc::new(FakeMMap), path).unwrap();
     init_db(&db, size);
-    test_dbfs(&db);
+    // test_dbfs(&db);
     init_dbfs(db);
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
