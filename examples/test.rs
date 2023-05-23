@@ -1,11 +1,11 @@
-use std::io::Write;
+
 use std::sync::Arc;
 use std::time::SystemTime;
 use jammdb::{Data, DB};
-use libc::write;
-use memmap2::MmapOptions;
+
+
 use dbfs2::fuse::mkfs::{FakeMMap, FakePath, MyOpenOptions};
-use dbfs2::{BUCKET_DATA_SIZE, SLICE_SIZE, usize};
+use dbfs2::{BUCKET_DATA_SIZE, SLICE_SIZE};
 
 fn main() {
     let path = FakePath::new("my-database1.db");

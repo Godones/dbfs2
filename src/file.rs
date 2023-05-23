@@ -1,4 +1,4 @@
-use crate::{BUCKET_DATA_SIZE, BUDDY_ALLOCATOR, clone_db, copy_data, SLICE_SIZE, u16, u32, usize};
+use crate::{BUDDY_ALLOCATOR, clone_db, copy_data, SLICE_SIZE, u16, u32, usize};
 
 use core::ops::Range;
 use alloc::string::ToString;
@@ -111,7 +111,7 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
 
     // TODO! first version
     let end_num = (offset + buf.len() as u64) / SLICE_SIZE as u64 + 1;
-    let mut offset = offset % SLICE_SIZE as u64;
+    let offset = offset % SLICE_SIZE as u64;
     let mut buf_offset = 0;
 
     let f_end_num = size / SLICE_SIZE + 1;
@@ -210,7 +210,7 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     loop {
         let key = generate_data_key_with_number(num as u32);
         let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
-        let mut data = if len == SLICE_SIZE && offset == 0{
+        let data = if len == SLICE_SIZE && offset == 0{
             unsafe { buf.as_ptr().add(count) }
         }else {
             #[cfg(feature = "fuse")]

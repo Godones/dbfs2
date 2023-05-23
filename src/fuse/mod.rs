@@ -38,7 +38,7 @@ use crate::fuse::attr::{
     dbfs_fuse_utimens,
 };
 use crate::fuse::link::{dbfs_fuse_link, dbfs_fuse_readlink, dbfs_fuse_symlink, dbfs_fuse_unlink};
-use crate::fuse::mkfs::{init_db, test_dbfs, FakeMMap, MyOpenOptions, FakePath};
+use crate::fuse::mkfs::{init_db, FakeMMap, MyOpenOptions, FakePath};
 use crate::{BUDDY_ALLOCATOR, init_cache, init_dbfs};
 pub use mkfs::init_dbfs_fuse;
 use crate::fuse::sblk::dbfs_fuse_destroy;

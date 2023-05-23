@@ -2,7 +2,7 @@ use std::io::Write;
 use std::println;
 use crate::clone_db;
 use crate::fs_type::dbfs_common_umount;
-use crate::fuse::mkfs::{FakeFile, test_dbfs};
+use crate::fuse::mkfs::{FakeFile};
 
 pub fn dbfs_fuse_destroy() {
     println!("dbfs_fuse_destroy");
@@ -17,7 +17,7 @@ pub fn dbfs_fuse_destroy() {
         fake_file.file.flush().unwrap();
         println!("sync_all and flush");
     }
-    let db = clone_db();
+    let _db = clone_db();
     //test_dbfs(&db);
     println!("dbfs_fuse_destroy end");
 }

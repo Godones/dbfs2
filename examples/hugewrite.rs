@@ -1,4 +1,4 @@
-use dbfs2::{DBFS, FLAG, SLICE_SIZE};
+use dbfs2::{DBFS, SLICE_SIZE};
 
 use jammdb::{DB, PathLike};
 use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_write_file, FileMode, OpenFlags, vfs_read_file};
@@ -6,7 +6,7 @@ use rvfs::mount::{do_mount, MountFlags};
 use rvfs::superblock::register_filesystem;
 use rvfs::{init_process_info, FakeFSC};
 use std::sync::Arc;
-use std::time::SystemTime;
+
 use rvfs::stat::vfs_getattr_by_file;
 
 use dbfs2::fuse::mkfs::{FakeMMap, FakePath, MyOpenOptions};
@@ -26,7 +26,7 @@ fn main() {
     init_process_info(mnt);
     register_filesystem(DBFS).unwrap();
     vfs_mkdir::<FakeFSC>("/db", FileMode::FMODE_WRITE).unwrap();
-    let file = vfs_open_file::<FakeFSC>(
+    let _file = vfs_open_file::<FakeFSC>(
         "/file1",
         OpenFlags::O_RDWR | OpenFlags::O_CREAT,
         FileMode::FMODE_WRITE,
