@@ -4,9 +4,7 @@ import matplotlib.pyplot as plt
 def filebench(ylabel: str, name: str, data1: list, data2: list, data3: list):
     x_label = ["mailserver","webserver", "fileserver"]
     plt.figure(figsize=(8, 6))
-    # 柱状图宽度
     width = 0.2
-    # 柱状图间距
     x = [i for i in range(len(x_label))]
     x1 = x
     x2 = [i + width for i in x]

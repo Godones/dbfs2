@@ -20,7 +20,7 @@ use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, Filesystem, fuse_forget_one, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow};
 use jammdb::DB;
 use libc::{c_int, ENOENT};
-use log::{error, info, warn};
+use log::{error, info, trace};
 use std::ffi::OsStr;
 use std::time::Duration;
 
@@ -47,7 +47,6 @@ const TTL: Duration = Duration::from_secs(1); // 1 second
                                               // const FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1 GiB
 // const FILE_SIZE: u64 = 9999999999999999;
 const FILE_SIZE:usize = 1024*1024*1024*20; // 6GB
-
 
 
 pub struct DbfsFuse {
@@ -81,7 +80,6 @@ impl Filesystem for DbfsFuse {
         let path = "./my-database.db";
         let db = DB::open::<MyOpenOptions<FILE_SIZE>,FakePath>(Arc::new(FakeMMap), FakePath::new(path)).map_err(|_| -1)?; // TODO: error handling
         init_db(&db, FILE_SIZE as u64);
-        //test_dbfs(&db);
         init_dbfs(db);
         init_cache();
         let uid = unsafe { libc::getuid() };
@@ -118,7 +116,7 @@ impl Filesystem for DbfsFuse {
 
     fn batch_forget(&mut self, _req: &Request<'_>, nodes: &[fuse_forget_one]) {
         for node in nodes{
-            warn!("batch_forget: {}", node.nodeid);
+            trace!("batch_forget: {}", node.nodeid);
         }
     }
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {

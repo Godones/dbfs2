@@ -12,14 +12,17 @@ use std::sync::Arc;
 fn init_db(db: &DB) {
     let tx = db.tx(true).unwrap();
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
-    bucket.put("continue_number", 0usize.to_le_bytes()).unwrap();
-    bucket.put("magic", 1111u32.to_le_bytes()).unwrap();
-    bucket.put("blk_size", (SLICE_SIZE as u32).to_le_bytes()).unwrap();
+    bucket.put("continue_number", 1usize.to_be_bytes()).unwrap();
+    bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
+    bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
+    bucket
+        .put("disk_size", (1024 * 1024 * 16u64).to_be_bytes())
+        .unwrap(); //16MB
     tx.commit().unwrap()
 }
 
 fn main() {
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
+    env_logger::init();
     let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database.db").unwrap();
     init_db(&db);
     init_dbfs(db);
@@ -81,6 +84,7 @@ fn main() {
     show_dbfs().unwrap();
 }
 
+#[allow(unused)]
 fn equal(buf: &mut [u8]) {
     let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database.db").unwrap();
     let tx = db.tx(true).unwrap();

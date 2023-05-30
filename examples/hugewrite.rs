@@ -14,7 +14,6 @@ use dbfs2::fuse::sblk::dbfs_fuse_destroy;
 
 fn main() {
     env_logger::init();
-    // let db = DB::open::<FileOpenOptions, _>(Arc::new(FakeMap), "my-database.db").unwrap();
     let path = FakePath::new("my-database1.db");
     let flag = path.exists();
     let db = DB::open::<MyOpenOptions<{ 20  * 1024 * 1024 * 1024 }>, _>(Arc::new(FakeMMap), path.clone()).unwrap(); // TODO: error handling
@@ -62,8 +61,8 @@ fn main() {
 
     let stat = vfs_getattr_by_file(f1_file).unwrap();
     println!("stat:{:#?}", stat);
-    const FILE_SIZE: usize = 1024 * 1024 * 1024 * 4; //write 8GB
-    const BK: usize = 1024*1024;
+    // const FILE_SIZE: usize = 1024 * 1024 * 1024 * 4; //write 8GB
+    // const BK: usize = 1024*1024;
     #[cfg(feature = "write")]
     {
         let start = SystemTime::now();
@@ -110,7 +109,6 @@ fn main() {
         println!("Throughput: {} MB/s", FILE_SIZE as f64 / 1024.0 / 1024.0 / end.duration_since(start).unwrap().as_secs_f64());
 
     }
-
     dbfs_fuse_destroy();
 }
 fn init_db(db: &DB) {

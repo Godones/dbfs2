@@ -64,19 +64,5 @@ fn print_an_address() -> Result<()> {
     println!("{:?}", 10u32.to_be_bytes());
     println!("{:?}", x.to_be_bytes());
 
-    let mut start_key = b"data".to_vec();
-    start_key.extend_from_slice(&12u32.to_be_bytes());
-
-    let slice = start_key.as_slice();
-
-    let mut n_start_key = b"data".to_vec();
-    n_start_key.extend_from_slice(&256u32.to_be_bytes());
-
-    let n_slice = n_start_key.as_slice();
-
-    println!("slice > n_slice:{}", slice > n_slice);
-
-    println!("{:?}", start_key.as_slice());
-    println!("{:?}", n_start_key.as_slice());
     Ok(())
 }

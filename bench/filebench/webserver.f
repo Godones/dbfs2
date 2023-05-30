@@ -23,7 +23,7 @@
 # Use is subject to license terms.
 #
 
-set $dir=/home/godones/projects/os-module/dbfs2/bench/dbfs
+set $dir=/home/godones/projects/os-module/dbfs2/bench/ext3
 #set $dir=/tmp
 set $nfiles=130000
 set $meandirwidth=20
