@@ -295,7 +295,7 @@ pub struct DbfsFsStat {
 }
 
 pub fn generate_data_key_with_number(num: u32) -> Vec<u8> {
-    let mut datakey = b"data:".to_vec();
+    let mut datakey = b"zdata:".to_vec();
     datakey.extend_from_slice(&num.to_be_bytes());
     datakey
 }
