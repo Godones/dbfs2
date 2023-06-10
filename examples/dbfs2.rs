@@ -1,10 +1,8 @@
 use dbfs2::{DBFS, SLICE_SIZE};
 use jammdb::memfile::{FakeMap, FileOpenOptions};
 use jammdb::DB;
-use rvfs::dentry::{vfs_rename, vfs_rmdir};
-use rvfs::file::{
-    vfs_mkdir, vfs_open_file, vfs_read_file, vfs_readdir, vfs_write_file, FileMode, OpenFlags,
-};
+use rvfs::dentry::{Dirent64Iterator, vfs_rename, vfs_rmdir};
+use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_read_file, vfs_readdir, vfs_write_file, FileMode, OpenFlags, File};
 use rvfs::link::{vfs_link, vfs_readlink, vfs_symlink};
 use rvfs::mount::{do_mount, MountFlags};
 use rvfs::stat::{vfs_getxattr, vfs_listxattr, vfs_setxattr};
@@ -43,9 +41,10 @@ fn main() {
     vfs_link::<FakeFSC>("/db/f1", "/db/f2").unwrap();
     println!("{f1_file:#?}");
     let root = vfs_open_file::<FakeFSC>("/db", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
-    vfs_readdir(root.clone()).unwrap().for_each(|x| {
-        println!("{x:#?}");
-    });
+
+
+
+    readdir(root.clone());
 
     let len = vfs_write_file::<FakeFSC>(f1_file.clone(), b"hello world", 0).unwrap();
     println!("len:{len}");
@@ -89,19 +88,17 @@ fn main() {
     assert!(Arc::ptr_eq(&file, &f1_file));
 
     vfs_mkdir::<FakeFSC>("/db/dir1", FileMode::FMODE_WRITE).unwrap();
-    vfs_readdir(root.clone()).unwrap().for_each(|x| {
-        println!("{x:#?}");
-    });
+
+    readdir(root.clone());
+
     vfs_rmdir::<FakeFSC>("db/dir1").unwrap();
-    vfs_readdir(root.clone()).unwrap().for_each(|x| {
-        println!("{x:#?}");
-    });
+
+
+    readdir(root.clone());
 
     vfs_rename::<FakeFSC>("db/f1", "db/f3").unwrap();
 
-    vfs_readdir(root).unwrap().for_each(|x| {
-        println!("{x:#?}");
-    });
+    readdir(root.clone());
 }
 
 fn init_db(db: &DB) {
@@ -114,4 +111,17 @@ fn init_db(db: &DB) {
         .put("disk_size", (1024 * 1024 * 16u64).to_be_bytes())
         .unwrap(); //16MB
     tx.commit().unwrap()
+}
+
+
+fn readdir(dir: Arc<File>) {
+    let len = vfs_readdir(dir.clone(), &mut [0; 0]).unwrap();
+    assert!(len > 0);
+    let mut dirents = vec![0u8; len];
+
+    let r = vfs_readdir(dir, &mut dirents[..]).unwrap();
+    assert_eq!(r, len);
+    Dirent64Iterator::new(&dirents[..]).for_each(|x| {
+        println!("{} {:?} {}",x.get_name(),x.type_,x.ino);
+    });
 }
