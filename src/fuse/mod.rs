@@ -119,12 +119,19 @@ impl Filesystem for DbfsFuse {
             trace!("batch_forget: {}", node.nodeid);
         }
     }
-    fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
+    fn getattr(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        fh: Option<u64>, // 新增参数
+        reply: ReplyAttr,
+    ) {
+        // 如果不需要使用 `fh` 参数，可以直接忽略它：
         let res = dbfs_fuse_getattr(ino);
         match res {
             Ok(attr) => reply.attr(&TTL, &attr),
             Err(x) => {
-                reply.error(x as i32)
+                reply.error(x as i32);
             }
         }
     }
