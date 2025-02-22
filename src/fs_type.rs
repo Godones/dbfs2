@@ -1,22 +1,32 @@
-use crate::file::DBFS_DIR_FILE_OPS;
-use crate::inode::{permission_from_mode, DBFS_DIR_INODE_OPS, DBFS_INODE_NUMBER};
-use crate::{clone_db, init_cache, SLICE_SIZE, u32, u64, usize};
-use alloc::boxed::Box;
-use alloc::string::ToString;
-use alloc::sync::{Arc, Weak};
-use alloc::vec;
-
-use crate::common::{generate_data_key, DbfsFsStat, DbfsResult, DbfsTimeSpec};
-use rvfs::dentry::{DirEntry, DirEntryOps, DirFlags};
-use rvfs::file::FileMode;
-use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode};
-use rvfs::mount::MountFlags;
-use rvfs::superblock::{
-    find_super_blk, DataOps, FileSystemAttr, FileSystemType, FileSystemTypeInner, StatFs,
-    SuperBlock, SuperBlockInner, SuperBlockOps,
+use alloc::{
+    boxed::Box,
+    string::ToString,
+    sync::{Arc, Weak},
+    vec,
 };
-use rvfs::{ddebug, StrResult};
+
+use rvfs::{
+    ddebug,
+    dentry::{DirEntry, DirEntryOps, DirFlags},
+    file::FileMode,
+    inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode},
+    mount::MountFlags,
+    superblock::{
+        find_super_blk, DataOps, FileSystemAttr, FileSystemType, FileSystemTypeInner, StatFs,
+        SuperBlock, SuperBlockInner, SuperBlockOps,
+    },
+    StrResult,
+};
 use spin::Mutex;
+
+use crate::{
+    clone_db,
+    common::{generate_data_key, DbfsFsStat, DbfsResult, DbfsTimeSpec},
+    file::DBFS_DIR_FILE_OPS,
+    init_cache,
+    inode::{permission_from_mode, DBFS_DIR_INODE_OPS, DBFS_INODE_NUMBER},
+    u32, u64, usize, SLICE_SIZE,
+};
 
 pub const DBFS: FileSystemType = FileSystemType {
     name: "dbfs",
@@ -70,7 +80,6 @@ fn dbfs_get_super_blk(
     ddebug!("dbfs_get_super_blk end");
     sb_blk
 }
-
 
 fn dbfs_kill_super_blk(_super_blk: Arc<SuperBlock>) {
     dbfs_common_umount().unwrap();
@@ -139,7 +148,7 @@ fn dbfs_create_root_inode(sb_blk: Arc<SuperBlock>) -> StrResult<Arc<Inode>> {
     // create a inode from super block
     let inode = create_tmp_inode_from_sb_blk(
         sb_blk.clone(),
-         1,
+        1,
         InodeMode::S_DIR,
         0,
         DBFS_DIR_INODE_OPS,
@@ -173,7 +182,9 @@ pub fn dbfs_common_root_inode(uid: u32, gid: u32, ctime: DbfsTimeSpec) -> DbfsRe
         new_inode.put("atime", ctime.to_be_bytes()).unwrap();
         new_inode.put("mtime", ctime.to_be_bytes()).unwrap();
         new_inode.put("ctime", ctime.to_be_bytes()).unwrap();
-        new_inode.put("block_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
+        new_inode
+            .put("block_size", (SLICE_SIZE as u32).to_be_bytes())
+            .unwrap();
         new_inode.put("size", 1usize.to_be_bytes()).unwrap();
 
         // insert dot  file
@@ -255,9 +266,7 @@ pub fn dbfs_common_statfs(
     Ok(stat)
 }
 
-
-
-pub fn dbfs_common_umount()->DbfsResult<()>{
+pub fn dbfs_common_umount() -> DbfsResult<()> {
     let db = clone_db();
     let tx = db.tx(true)?;
     let bucket = tx.get_bucket("super_blk")?;

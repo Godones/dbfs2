@@ -1,20 +1,26 @@
-use dbfs2::extend::{execute_operate, extend_create_global_bucket, show_dbfs};
-use dbfs2::{init_dbfs, SLICE_SIZE};
+use std::{cmp::min, sync::Arc};
+
+use dbfs2::{
+    extend::{execute_operate, extend_create_global_bucket, show_dbfs},
+    init_dbfs, SLICE_SIZE,
+};
 use dbop::{
     add_key, make_operate_set, read_key, AddBucketOperate, AddKeyOperate, DeleteKeyOperate,
     Operate, OperateSet, ReadOperate, RenameKeyOperate, StepIntoOperate,
 };
-use jammdb::memfile::{FakeMap, FileOpenOptions};
-use jammdb::DB;
-use std::cmp::min;
-use std::sync::Arc;
+use jammdb::{
+    memfile::{FakeMap, FileOpenOptions},
+    DB,
+};
 
 fn init_db(db: &DB) {
     let tx = db.tx(true).unwrap();
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 1usize.to_be_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
-    bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
+    bucket
+        .put("blk_size", (SLICE_SIZE as u32).to_be_bytes())
+        .unwrap();
     bucket
         .put("disk_size", (1024 * 1024 * 16u64).to_be_bytes())
         .unwrap(); //16MB

@@ -1,8 +1,6 @@
-use std::io::Write;
-use std::println;
-use crate::clone_db;
-use crate::fs_type::dbfs_common_umount;
-use crate::fuse::mkfs::{FakeFile};
+use std::{io::Write, println};
+
+use crate::{clone_db, fs_type::dbfs_common_umount, fuse::mkfs::FakeFile};
 
 pub fn dbfs_fuse_destroy() {
     println!("dbfs_fuse_destroy");

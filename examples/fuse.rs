@@ -1,29 +1,28 @@
-use clap::{Parser};
-
-use dbfs2::fuse::{DbfsFuse};
+use clap::Parser;
+use dbfs2::fuse::DbfsFuse;
 use fuser::MountOption;
 
-#[derive(Parser,Debug)]
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Args{
+struct Args {
     /// Mount point
     #[arg(long)]
-    mount_point:String,
+    mount_point: String,
     /// Automatically unmount on process exit
     #[arg(long)]
-    auto_unmount:bool,
+    auto_unmount: bool,
     /// Allow root user to access filesystem
     #[arg(long)]
-    allow_other:bool,
+    allow_other: bool,
     /// Mount FUSE with direct IO
     #[arg(long)]
-    direct_io:bool,
+    direct_io: bool,
     /// Enable setuid support when run as root
     #[arg(long)]
-    suid:bool,
+    suid: bool,
     /// Other fuse options
     #[arg(long)]
-    other:Vec<String>,
+    other: Vec<String>,
 }
 
 fn main() {
@@ -41,7 +40,7 @@ fn main() {
     options.push(MountOption::Async);
     let other = args.other.join(" ");
     options.push(MountOption::CUSTOM(other));
-    let dbfs = DbfsFuse::new(args.direct_io,args.suid);
-    println!("options: {:?}",options);
+    let dbfs = DbfsFuse::new(args.direct_io, args.suid);
+    println!("options: {:?}", options);
     fuser::mount2(dbfs, mount_point, &options).unwrap();
 }

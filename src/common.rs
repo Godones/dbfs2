@@ -1,15 +1,16 @@
 #![allow(unused)]
-use crate::{u32, u64};
-use alloc::string::String;
-use alloc::{format, vec};
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
+use alloc::{collections::BTreeMap, format, string::String, vec, vec::Vec};
+use core::{
+    fmt::{Debug, Display, Formatter},
+    ops::Deref,
+};
+
 use bitflags::bitflags;
-use core::fmt::{Debug, Display, Formatter};
-use core::ops::Deref;
 use onlyerror::Error;
 use rvfs::dentry::DirentType;
 use spin::{Once, RwLock};
+
+use crate::{u32, u64};
 
 pub const FMODE_EXEC: i32 = 0x20;
 pub const MAX_PATH_LEN: usize = 255;
@@ -21,14 +22,14 @@ pub const ACCESS_X_OK: u16 = 1;
 
 pub const RENAME_EXCHANGE: u32 = 0x2;
 
-#[derive( Default, Clone)]
+#[derive(Default, Clone)]
 pub struct DbfsDirEntry {
     pub ino: u64,
     pub offset: u64,
     pub kind: DbfsFileType,
     pub name: String,
     /// for readdir plus
-    pub attr: Option<DbfsAttr>
+    pub attr: Option<DbfsAttr>,
 }
 
 impl Debug for DbfsDirEntry {
@@ -42,7 +43,6 @@ impl Debug for DbfsDirEntry {
             .finish()
     }
 }
-
 
 #[derive(Error, Debug)]
 pub enum DbfsError {
@@ -152,7 +152,6 @@ impl Into<DirentType> for DbfsFileType {
     }
 }
 
-
 impl Default for DbfsFileType {
     fn default() -> Self {
         DbfsFileType::RegularFile
@@ -257,7 +256,7 @@ impl DbfsTimeSpec {
     }
 }
 
-#[derive(Debug, Default,Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct DbfsAttr {
     /// Inode number
     pub ino: usize,
@@ -316,54 +315,51 @@ pub fn generate_data_key_with_number(num: u32) -> Vec<u8> {
     datakey
 }
 
-pub fn generate_data_key(value:&str) -> String{
-    format!("data:{}",value)
+pub fn generate_data_key(value: &str) -> String {
+    format!("data:{}", value)
 }
 
-
-#[derive(Debug,Clone)]
-pub struct ReadDirInfo{
-    pub offset:usize,
-    pub key:String,
+#[derive(Debug, Clone)]
+pub struct ReadDirInfo {
+    pub offset: usize,
+    pub key: String,
 }
 
 impl ReadDirInfo {
-    pub fn new(offset:usize,key:String) -> Self{
-        Self{
-            offset,
-            key,
-        }
+    pub fn new(offset: usize, key: String) -> Self {
+        Self { offset, key }
     }
 }
 
 /// When readdir firstly, we need to store the offset and key for the ino so that
 /// we can continue to read the directory when the fuse call readdir again.
-pub static GLOBAL_READDIR_TABLE:RwLock<BTreeMap<usize,ReadDirInfo>> = RwLock::new(BTreeMap::new());
+pub static GLOBAL_READDIR_TABLE: RwLock<BTreeMap<usize, ReadDirInfo>> =
+    RwLock::new(BTreeMap::new());
 
-pub fn push_readdir_table(ino:usize,info:ReadDirInfo){
+pub fn push_readdir_table(ino: usize, info: ReadDirInfo) {
     let mut table = GLOBAL_READDIR_TABLE.write();
-    table.insert(ino,info);
+    table.insert(ino, info);
 }
 
-pub fn pop_readdir_table(ino:usize) -> Option<ReadDirInfo>{
+pub fn pop_readdir_table(ino: usize) -> Option<ReadDirInfo> {
     let mut table = GLOBAL_READDIR_TABLE.write();
     table.remove(&ino)
 }
 
-
 /// This function will be called when the fuse call readdir.
-pub fn get_readdir_table(ino:usize) -> Option<ReadDirInfo>{
+pub fn get_readdir_table(ino: usize) -> Option<ReadDirInfo> {
     let table = GLOBAL_READDIR_TABLE.read();
     table.get(&ino).cloned()
 }
 
-
 #[cfg(feature = "fuse")]
 mod impl_fuse {
     extern crate std;
-    use super::*;
-    use fuser::{FileAttr, FileType};
     use std::time::SystemTime;
+
+    use fuser::{FileAttr, FileType};
+
+    use super::*;
 
     impl From<DbfsFileType> for FileType {
         fn from(value: DbfsFileType) -> Self {
@@ -417,7 +413,7 @@ mod impl_fuse {
         }
     }
 
-    impl From<&DbfsAttr>  for FileAttr{
+    impl From<&DbfsAttr> for FileAttr {
         fn from(value: &DbfsAttr) -> Self {
             FileAttr {
                 ino: value.ino as u64,
@@ -438,14 +434,13 @@ mod impl_fuse {
             }
         }
     }
-
 }
 
 #[cfg(feature = "rvfs")]
 mod impl_rvfs {
+    use rvfs::{inode::InodeMode, superblock::StatFs};
+
     use crate::common::{DbfsFileType, DbfsFsStat};
-    use rvfs::inode::InodeMode;
-    use rvfs::superblock::StatFs;
 
     impl From<DbfsFileType> for InodeMode {
         fn from(value: DbfsFileType) -> Self {

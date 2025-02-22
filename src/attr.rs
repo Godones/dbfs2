@@ -1,10 +1,14 @@
-use crate::common::{
-    DbfsAttr, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, XattrNamespace, ACCESS_R_OK,
-    ACCESS_W_OK,
-};
-use crate::inode::{checkout_access, dbfs_common_attr};
-use crate::{clone_db, u16, u32};
 use log::error;
+
+use crate::{
+    clone_db,
+    common::{
+        DbfsAttr, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, XattrNamespace, ACCESS_R_OK,
+        ACCESS_W_OK,
+    },
+    inode::{checkout_access, dbfs_common_attr},
+    u16, u32,
+};
 
 pub fn dbfs_common_setxattr(
     r_uid: u32,

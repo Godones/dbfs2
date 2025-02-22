@@ -1,14 +1,23 @@
-use dbfs2::{DBFS, SLICE_SIZE};
-use jammdb::memfile::{FakeMap, FileOpenOptions};
-use jammdb::DB;
-use rvfs::dentry::{Dirent64Iterator, vfs_rename, vfs_rmdir};
-use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_read_file, vfs_readdir, vfs_write_file, FileMode, OpenFlags, File};
-use rvfs::link::{vfs_link, vfs_readlink, vfs_symlink};
-use rvfs::mount::{do_mount, MountFlags};
-use rvfs::stat::{vfs_getxattr, vfs_listxattr, vfs_setxattr};
-use rvfs::superblock::register_filesystem;
-use rvfs::{init_process_info, FakeFSC};
 use std::sync::Arc;
+
+use dbfs2::{DBFS, SLICE_SIZE};
+use jammdb::{
+    memfile::{FakeMap, FileOpenOptions},
+    DB,
+};
+use rvfs::{
+    dentry::{vfs_rename, vfs_rmdir, Dirent64Iterator},
+    file::{
+        vfs_mkdir, vfs_open_file, vfs_read_file, vfs_readdir, vfs_write_file, File, FileMode,
+        OpenFlags,
+    },
+    init_process_info,
+    link::{vfs_link, vfs_readlink, vfs_symlink},
+    mount::{do_mount, MountFlags},
+    stat::{vfs_getxattr, vfs_listxattr, vfs_setxattr},
+    superblock::register_filesystem,
+    FakeFSC,
+};
 
 fn main() {
     env_logger::init();
@@ -41,8 +50,6 @@ fn main() {
     vfs_link::<FakeFSC>("/db/f1", "/db/f2").unwrap();
     println!("{f1_file:#?}");
     let root = vfs_open_file::<FakeFSC>("/db", OpenFlags::O_RDWR, FileMode::FMODE_WRITE).unwrap();
-
-
 
     readdir(root.clone());
 
@@ -93,7 +100,6 @@ fn main() {
 
     vfs_rmdir::<FakeFSC>("db/dir1").unwrap();
 
-
     readdir(root.clone());
 
     vfs_rename::<FakeFSC>("db/f1", "db/f3").unwrap();
@@ -106,13 +112,14 @@ fn init_db(db: &DB) {
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 1usize.to_be_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
-    bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
+    bucket
+        .put("blk_size", (SLICE_SIZE as u32).to_be_bytes())
+        .unwrap();
     bucket
         .put("disk_size", (1024 * 1024 * 16u64).to_be_bytes())
         .unwrap(); //16MB
     tx.commit().unwrap()
 }
-
 
 fn readdir(dir: Arc<File>) {
     let len = vfs_readdir(dir.clone(), &mut [0; 0]).unwrap();
@@ -122,6 +129,6 @@ fn readdir(dir: Arc<File>) {
     let r = vfs_readdir(dir, &mut dirents[..]).unwrap();
     assert_eq!(r, len);
     Dirent64Iterator::new(&dirents[..]).for_each(|x| {
-        println!("{} {:?} {}",x.get_name(),x.type_,x.ino);
+        println!("{} {:?} {}", x.get_name(), x.type_, x.ino);
     });
 }

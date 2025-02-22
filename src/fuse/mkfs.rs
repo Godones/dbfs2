@@ -1,35 +1,36 @@
 extern crate std;
-use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::sync::Arc;
+use alloc::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+};
 use core::fmt::Display;
-use crate::common::DbfsTimeSpec;
-use crate::fs_type::dbfs_common_root_inode;
-use crate::{init_dbfs, SLICE_SIZE, usize};
-use downcast::_std::io::{Read, Seek, Write};
-use downcast::_std::println;
-use downcast::_std::time::SystemTime;
+use std::{fs::OpenOptions, path::Path};
+
+use downcast::_std::{
+    io::{Read, Seek, Write},
+    println,
+    time::SystemTime,
+};
 use jammdb::{
     Bucket, Data, DbFile, File, FileExt, IOResult, IndexByPageID, MemoryMap, MetaData, OpenOption,
     PathLike, DB,
 };
 use rvfs::warn;
-use std::fs::OpenOptions;
+use spin::Once;
 
-use std::path::Path;
-use spin::{Once};
+use crate::{common::DbfsTimeSpec, fs_type::dbfs_common_root_inode, init_dbfs, usize, SLICE_SIZE};
 
-
-pub struct MyOpenOptions<const S:usize>{
+pub struct MyOpenOptions<const S: usize> {
     read: bool,
     write: bool,
     create: bool,
     #[allow(unused)]
     size: usize,
 }
-impl <const S:usize> OpenOption for MyOpenOptions<S> {
+impl<const S: usize> OpenOption for MyOpenOptions<S> {
     fn new() -> Self {
         MyOpenOptions {
             read: false,
@@ -57,7 +58,10 @@ impl <const S:usize> OpenOption for MyOpenOptions<S> {
             .open(path.to_string())
             .unwrap();
         file.set_len(S as u64).unwrap();
-        println!("file size is {}GB",file.metadata().unwrap().len()/1024/1024/1024);
+        println!(
+            "file size is {}GB",
+            file.metadata().unwrap().len() / 1024 / 1024 / 1024
+        );
         Ok(File::new(Box::new(FakeFile::new(file))))
     }
 
@@ -78,11 +82,10 @@ impl FakeFile {
         let size = meta.len();
         FakeFile {
             file,
-            size:size as usize
+            size: size as usize,
         }
     }
 }
-
 
 impl core2::io::Seek for FakeFile {
     fn seek(&mut self, pos: core2::io::SeekFrom) -> core2::io::Result<u64> {
@@ -126,15 +129,15 @@ impl FileExt for FakeFile {
     }
 
     fn allocate(&mut self, new_size: u64) -> IOResult<()> {
-        if self.size > new_size as usize{
-            return Ok(())
-        }else {
+        if self.size > new_size as usize {
+            return Ok(());
+        } else {
             // panic!("Don't need allocate, the new size is {}MB, old size is {}",new_size/1024/1024,self.size/1024/1024);
-            let res =
-            self.file
+            let res = self
+                .file
                 .set_len(new_size)
                 .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "allocate error"));
-            if res.is_ok(){
+            if res.is_ok() {
                 self.size = new_size as usize
             }
             res
@@ -153,7 +156,6 @@ impl FileExt for FakeFile {
             .map_err(|_x| core2::io::Error::new(core2::io::ErrorKind::Other, "metadata error"))?;
         Ok(meta)
     }
-
 
     /// TODO: The first place for update
     fn sync_all(&self) -> IOResult<()> {
@@ -176,7 +178,7 @@ impl FileExt for FakeFile {
 
 impl DbFile for FakeFile {}
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct FakePath {
     path: std::path::PathBuf,
 }
@@ -206,17 +208,16 @@ impl PathLike for FakePath {
 
 pub struct FakeMMap;
 
-
 struct IndexByPageIDImpl {
     // map: memmap2::Mmap,
-    map:memmap2::Mmap
+    map: memmap2::Mmap,
 }
 
-static MMAP:Once<Arc<IndexByPageIDImpl>> = Once::new();
+static MMAP: Once<Arc<IndexByPageIDImpl>> = Once::new();
 
 impl MemoryMap for FakeMMap {
     fn do_map(&self, file: &mut File) -> IOResult<Arc<dyn IndexByPageID>> {
-        if !MMAP.is_completed(){
+        if !MMAP.is_completed() {
             let file = &file.file;
             let fake_file = file.downcast_ref::<FakeFile>().unwrap();
             let res = mmap(&fake_file.file, false);
@@ -228,8 +229,8 @@ impl MemoryMap for FakeMMap {
                 ));
             }
             let map = res.unwrap();
-            let map = Arc::new(IndexByPageIDImpl{map});
-            MMAP.call_once(||map);
+            let map = Arc::new(IndexByPageIDImpl { map });
+            MMAP.call_once(|| map);
         }
         Ok(MMAP.get().unwrap().clone())
     }
@@ -273,7 +274,6 @@ impl IndexByPageID for IndexByPageIDImpl {
         //     );
         // }
 
-
         Ok(&self.map[start..end])
     }
 
@@ -281,7 +281,6 @@ impl IndexByPageID for IndexByPageIDImpl {
         self.map.len()
     }
 }
-
 
 pub fn init_dbfs_fuse<T: AsRef<Path>>(path: T, size: u64) {
     use super::FILE_SIZE;
@@ -302,12 +301,14 @@ pub fn init_db(db: &DB, size: u64) {
     let bucket = tx.get_bucket("super_blk");
     let bucket = if bucket.is_ok() {
         return;
-    }else {
+    } else {
         tx.create_bucket("super_blk").unwrap()
     };
     bucket.put("continue_number", 1usize.to_be_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
-    bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
+    bucket
+        .put("blk_size", (SLICE_SIZE as u32).to_be_bytes())
+        .unwrap();
     bucket.put("disk_size", size.to_be_bytes()).unwrap(); //16MB
     tx.commit().unwrap()
 }
@@ -316,11 +317,11 @@ pub fn test_dbfs(db: &DB) {
     let tx = db.tx(true).unwrap();
     tx.buckets().for_each(|(name, x)| {
         let key = name.name();
-        if key.len()==8{
+        if key.len() == 8 {
             println!("BUCKET-INODE:{}", usize!(key));
-        }else {
+        } else {
             let s_key = String::from_utf8(key.to_vec());
-            println!("BUCKET:{:?}",s_key.unwrap());
+            println!("BUCKET:{:?}", s_key.unwrap());
         };
         show_bucket(0, x);
     });
@@ -330,9 +331,9 @@ fn show_bucket(tab: usize, bucket: Bucket) {
     bucket.cursor().for_each(|x| match x {
         Data::Bucket(x) => {
             let key = x.name().to_owned();
-            let value = if key.len()==8{
+            let value = if key.len() == 8 {
                 format!("BUCKET-INODE:{}", usize!(key.as_slice()))
-            }else {
+            } else {
                 let s_key = String::from_utf8(key.clone());
                 format!("BUCKET:{:?}", s_key.unwrap())
             };
@@ -345,9 +346,9 @@ fn show_bucket(tab: usize, bucket: Bucket) {
             let key = kv.key();
             let value = kv.value();
             let key = String::from_utf8_lossy(key).to_string();
-            let value = if value.len() != SLICE_SIZE{
+            let value = if value.len() != SLICE_SIZE {
                 format!("{}:{:?}", key, value)
-            }else {
+            } else {
                 format!("{}:{:?}", key, value.len())
             };
             let v = tab * 2 + value.len();

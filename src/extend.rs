@@ -1,14 +1,18 @@
-use crate::clone_db;
-use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::cmp::min;
+
 use dbop::{Operate, OperateSet};
 use jammdb::{Bucket, Data};
 use preprint::pprintln;
 use rvfs::{info, warn, StrResult};
+
+use crate::clone_db;
 
 /// bucket: root:key1:key2:key3
 pub fn execute_operate(bucket: &str, operate: OperateSet) -> isize {

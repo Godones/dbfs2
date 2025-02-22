@@ -1,13 +1,13 @@
-use crate::common::{DbfsAttr, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, MAX_PATH_LEN};
-use downcast::_std::println;
-use downcast::_std::time::SystemTime;
+use downcast::_std::{println, time::SystemTime};
 use fuser::{FileAttr, Request};
-
 use rvfs::warn;
 
-use crate::inode::{
-    dbfs_common_create, dbfs_common_fallocate, dbfs_common_lookup, dbfs_common_rename,
-    dbfs_common_rmdir, dbfs_common_truncate,
+use crate::{
+    common::{DbfsAttr, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, MAX_PATH_LEN},
+    inode::{
+        dbfs_common_create, dbfs_common_fallocate, dbfs_common_lookup, dbfs_common_rename,
+        dbfs_common_rmdir, dbfs_common_truncate,
+    },
 };
 
 pub fn dbfs_fuse_lookup(parent: u64, name: &str) -> DbfsResult<FileAttr> {
