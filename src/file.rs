@@ -12,11 +12,11 @@ use core::cmp::{max, min};
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicBool;
 use jammdb::Data;
-use log::{error, warn};
+use log::{error, trace, warn};
 
-use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec, get_readdir_table, generate_data_key_with_number};
+use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec, get_readdir_table, generate_data_key_with_number, push_readdir_table, ReadDirInfo, pop_readdir_table};
 use crate::inode::{checkout_access, dbfs_common_attr};
-use rvfs::dentry::{DirContext};
+use rvfs::dentry::{Dirent64, DirentType};
 use rvfs::file::{File, FileOps};
 use rvfs::StrResult;
 
@@ -181,6 +181,7 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
 
    // Ok(count)
 }
+#[cfg(feature = "fuse")]
 pub static FLAG:AtomicBool = AtomicBool::new(false);
 /// we need think about how to write data to dbfs
 /// * data1: \[u8;SLICE_SIZE]
@@ -276,25 +277,72 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     Ok(count)
 }
 
-fn dbfs_readdir(file: Arc<File>) -> StrResult<DirContext> {
+fn dbfs_readdir(file: Arc<File>, dirents: &mut [u8]) -> StrResult<usize> {
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
     let db = clone_db();
     let tx = db.tx(false).unwrap();
     let bucket = tx.get_bucket(numer.to_be_bytes()).unwrap();
-    let mut data = vec![];
-    bucket.kv_pairs().for_each(|x| {
-        if x.key().starts_with("data:".as_bytes()) {
-            let key = x.key();
-            let str = core::str::from_utf8(key).unwrap();
-            let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
-            data.extend_from_slice(name[0].as_bytes());
-            data.push(0);
-        }
-    });
 
-    Ok(DirContext::new(data))
+    let res:usize = if dirents.is_empty(){
+        bucket.kv_pairs().map(|x| {
+            if x.key().starts_with("data:".as_bytes()) {
+                let key = x.key();
+                let str = core::str::from_utf8(key).unwrap();
+                let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
+                let fake_dirent = Dirent64::new(name[0],1,0,DirentType::empty());
+                fake_dirent.len()
+            }else {
+                0
+            }
+        }).sum()
+    }else {
+        pop_readdir_table(numer);
+        let mut count = 0;
+        let buf_len = dirents.len();
+        let mut ptr = dirents.as_mut_ptr();
+        let mut offset = 0;
+        loop {
+            let mut entries = vec![DbfsDirEntry::default(); 16]; // we read 16 entries at a time
+            let res = dbfs_common_readdir(numer as usize, &mut entries, offset as u64,false);
+            if res.is_err(){
+                return Err("dbfs_common_readdir error");
+            }
+            let res = res.unwrap();
+            if res == 0 {
+                trace!("There is no entry in the directory.");
+                return Ok(count);
+            }
+            for i in 0..res {
+                let x = &entries[i];
+                let dirent = Dirent64::new(&x.name,x.ino,x.offset as i64,x.kind.into());
+                offset = x.offset as i64 + 1;
+                if count + dirent.len() <= buf_len {
+                    let dirent_ptr = unsafe { &mut *(ptr as *mut Dirent64) };
+                    *dirent_ptr = dirent;
+                    let name_ptr = dirent_ptr.name.as_mut_ptr();
+                    unsafe {
+                        let mut name = x.name.clone();
+                        name.push('\0');
+                        let len = name.len();
+                        name_ptr.copy_from(name.as_ptr(), len);
+                        ptr = ptr.add(dirent_ptr.len());
+                    }
+                    count += dirent_ptr.len();
+                }else {
+                    return Ok(count); // return
+                }
+            }
+            if res < 16 {
+                break;
+            }
+            let x = &entries[res-1];
+            push_readdir_table(numer,ReadDirInfo::new(x.offset as usize,x.name.clone()));
+        }
+        count
+    };
+    Ok(res)
 }
 
 pub fn dbfs_common_readdir(

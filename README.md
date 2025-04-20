@@ -19,9 +19,17 @@ The diagram above shows the interface design of DBFS. From the bottom up, DBFS i
 
 DBFS adapts the fuse interface and the [rvfs](https://github.com/Godones/rvfs) framework implemented by the author using rust on the general interface layer.
 
-1. fuse
+1. Fuse
+- DBFS-Fuse is compatible with libfuse3. Please make sure you have the latest version of FUSE installed.
+- Use pkg-config to check if libfuse3 is correctly installed. 
+For example:
 
-```
+```bash
+pkg-config --modversion fuse3
+ ```
+
+Clone the repository locally, then run (please make sure the bench directory exists in advance):
+```bash
 git clone https://github.com/Godones/dbfs2.git
 cargo run --release --example fuse -- --allow-other --auto-unmount --mount-point ./bench/dbfs
 ```
@@ -96,7 +104,7 @@ make
 2. Switch to the `bench` directory and create an ext3/ext4 file system image
 
 ```
-make prefile
+make pre_file
 ```
 
 3. Mount the ext file system

@@ -126,7 +126,6 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
         }
         let res = res.unwrap();
         if res == 0 {
-            error!("There is no entry in the directory.");
             repl.ok();
             return;
         }

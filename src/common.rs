@@ -8,6 +8,7 @@ use bitflags::bitflags;
 use core::fmt::{Debug, Display, Formatter};
 use core::ops::Deref;
 use onlyerror::Error;
+use rvfs::dentry::DirentType;
 use spin::{Once, RwLock};
 
 pub const FMODE_EXEC: i32 = 0x20;
@@ -136,6 +137,21 @@ pub enum DbfsFileType {
     /// Unix domain socket (S_IFSOCK)
     Socket,
 }
+
+impl Into<DirentType> for DbfsFileType {
+    fn into(self) -> DirentType {
+        match self {
+            DbfsFileType::NamedPipe => DirentType::DT_UNKNOWN,
+            DbfsFileType::CharDevice => DirentType::DT_UNKNOWN,
+            DbfsFileType::BlockDevice => DirentType::DT_UNKNOWN,
+            DbfsFileType::Directory => DirentType::DT_DIR,
+            DbfsFileType::RegularFile => DirentType::DT_REG,
+            DbfsFileType::Symlink => DirentType::DT_LNK,
+            DbfsFileType::Socket => DirentType::DT_UNKNOWN,
+        }
+    }
+}
+
 
 impl Default for DbfsFileType {
     fn default() -> Self {
@@ -295,7 +311,7 @@ pub struct DbfsFsStat {
 }
 
 pub fn generate_data_key_with_number(num: u32) -> Vec<u8> {
-    let mut datakey = b"data:".to_vec();
+    let mut datakey = b"zdata:".to_vec();
     datakey.extend_from_slice(&num.to_be_bytes());
     datakey
 }
