@@ -1,4 +1,4 @@
-use clap::{Parser};
+use clap::Parser;
 use dbfs2::fuse::DbfsFuse;
 use fuser::MountOption;
 

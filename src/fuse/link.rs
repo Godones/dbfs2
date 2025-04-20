@@ -1,9 +1,12 @@
-use crate::common::{DbfsAttr, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, MAX_PATH_LEN};
-use crate::inode::{dbfs_common_create, dbfs_common_link};
-use crate::link::{dbfs_common_readlink, dbfs_common_unlink};
 use downcast::_std::time::SystemTime;
 use fuser::Request;
 use log::{error, warn};
+
+use crate::{
+    common::{DbfsAttr, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, MAX_PATH_LEN},
+    inode::{dbfs_common_create, dbfs_common_link},
+    link::{dbfs_common_readlink, dbfs_common_unlink},
+};
 
 pub fn dbfs_fuse_link(
     req: &Request<'_>,

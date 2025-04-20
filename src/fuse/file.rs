@@ -1,20 +1,25 @@
-use crate::common::{DbfsDirEntry, DbfsError, DbfsResult, DbfsTimeSpec, FMODE_EXEC, generate_data_key_with_number, pop_readdir_table, push_readdir_table, ReadDirInfo};
-use crate::file::{
-    dbfs_common_copy_file_range, dbfs_common_open, dbfs_common_read, dbfs_common_readdir,
-    dbfs_common_write,
-};
 use alloc::vec;
-use std::cmp::min;
-use std::io::IoSlice;
-use std::println;
+use std::{cmp::min, io::IoSlice, println};
+
 use downcast::_std::time::SystemTime;
 use fuser::{ReplyData, ReplyDirectory, ReplyDirectoryPlus, Request};
 use log::error;
-
 use rvfs::warn;
-use smallvec::{SmallVec, smallvec};
-use crate::{clone_db, SLICE_SIZE, usize};
-use crate::fuse::TTL;
+use smallvec::{smallvec, SmallVec};
+
+use crate::{
+    clone_db,
+    common::{
+        generate_data_key_with_number, pop_readdir_table, push_readdir_table, DbfsDirEntry,
+        DbfsError, DbfsResult, DbfsTimeSpec, ReadDirInfo, FMODE_EXEC,
+    },
+    file::{
+        dbfs_common_copy_file_range, dbfs_common_open, dbfs_common_read, dbfs_common_readdir,
+        dbfs_common_write,
+    },
+    fuse::TTL,
+    usize, SLICE_SIZE,
+};
 
 pub fn dbfs_fuse_read(ino: u64, offset: i64, buf: &mut [u8]) -> DbfsResult<usize> {
     assert!(offset >= 0);
@@ -22,7 +27,12 @@ pub fn dbfs_fuse_read(ino: u64, offset: i64, buf: &mut [u8]) -> DbfsResult<usize
 }
 
 //
-pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, _repl:ReplyData) -> DbfsResult<usize> {
+pub fn dbfs_fuse_special_read(
+    ino: usize,
+    old_offset: i64,
+    need_size: usize,
+    _repl: ReplyData,
+) -> DbfsResult<usize> {
     assert!(old_offset >= 0);
     let offset = old_offset as u64;
     let db = clone_db();
@@ -33,7 +43,7 @@ pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, _rep
     if offset >= size as u64 {
         return Ok(0);
     }
-    let mut res_slice:SmallVec<[IoSlice<'_>; 1024*1024/SLICE_SIZE]> = smallvec![];
+    let mut res_slice: SmallVec<[IoSlice<'_>; 1024 * 1024 / SLICE_SIZE]> = smallvec![];
 
     let tmp = [0u8; SLICE_SIZE];
     let mut start_num = offset / SLICE_SIZE as u64;
@@ -45,61 +55,57 @@ pub fn dbfs_fuse_special_read(ino: usize, old_offset: i64, need_size:usize, _rep
         let key = generate_data_key_with_number(start_num as u32);
         let value = bucket.get_kv(key);
         let real_size = min(size - start_num as usize * SLICE_SIZE, SLICE_SIZE);
-        if value.is_none(){
+        if value.is_none() {
             // copy tmp buf to buf
             let len = min(need_size - count, real_size.saturating_sub(offset as usize));
             let ptr = tmp.as_ptr();
-            let data = unsafe{
-                std::slice::from_raw_parts(ptr,SLICE_SIZE)
-            };
+            let data = unsafe { std::slice::from_raw_parts(ptr, SLICE_SIZE) };
             res_slice.push(IoSlice::new(&data[offset as usize..offset as usize + len]));
 
             count += len;
-            offset  = (offset + len as u64) % SLICE_SIZE as u64;
-        }else {
+            offset = (offset + len as u64) % SLICE_SIZE as u64;
+        } else {
             let value = value.unwrap();
             let value = value.value();
             let len = min(need_size - count, real_size.saturating_sub(offset as usize));
             let ptr = value.as_ptr();
-            let data = unsafe{
-                std::slice::from_raw_parts(ptr,SLICE_SIZE)
-            };
+            let data = unsafe { std::slice::from_raw_parts(ptr, SLICE_SIZE) };
             res_slice.push(IoSlice::new(&data[offset as usize..offset as usize + len]));
 
             count += len;
-            offset  = (offset + len as u64) % SLICE_SIZE as u64;
+            offset = (offset + len as u64) % SLICE_SIZE as u64;
         }
         if count == size || count == need_size {
             break;
         }
         start_num += 1;
     }
-    error!("IoSlice len :{}",res_slice.len());
-    if count != need_size{
-        for _i in 0..(need_size-count)/SLICE_SIZE{
+    error!("IoSlice len :{}", res_slice.len());
+    if count != need_size {
+        for _i in 0..(need_size - count) / SLICE_SIZE {
             let ptr = tmp.as_ptr();
-            let data = unsafe{
-                std::slice::from_raw_parts(ptr,SLICE_SIZE)
-            };
+            let data = unsafe { std::slice::from_raw_parts(ptr, SLICE_SIZE) };
             res_slice.push(IoSlice::new(data));
         }
-        let len = (need_size-count)%SLICE_SIZE;
+        let len = (need_size - count) % SLICE_SIZE;
         let ptr = tmp.as_ptr();
-        let data = unsafe{
-            std::slice::from_raw_parts(ptr,SLICE_SIZE)
-        };
+        let data = unsafe { std::slice::from_raw_parts(ptr, SLICE_SIZE) };
         res_slice.push(IoSlice::new(&data[..len]));
     }
 
-    let total = res_slice.iter().fold(0,|acc,x|acc+x.len());
-    println!("read_num:{},offset:{},count:{},need:{},total:{}",start_num-old_start,old_offset,count,need_size,total);
+    let total = res_slice.iter().fold(0, |acc, x| acc + x.len());
+    println!(
+        "read_num:{},offset:{},count:{},need:{},total:{}",
+        start_num - old_start,
+        old_offset,
+        count,
+        need_size,
+        total
+    );
 
     // repl.data2(&res_slice);
     Ok(count)
 }
-
-
-
 
 pub fn dbfs_fuse_write(ino: u64, offset: i64, buf: &[u8]) -> DbfsResult<usize> {
     assert!(offset >= 0);
@@ -108,8 +114,7 @@ pub fn dbfs_fuse_write(ino: u64, offset: i64, buf: &[u8]) -> DbfsResult<usize> {
     res
 }
 
-
-pub fn dbfs_fuse_releasedir(ino:u64)->DbfsResult<()>{
+pub fn dbfs_fuse_releasedir(ino: u64) -> DbfsResult<()> {
     pop_readdir_table(ino as usize);
     Ok(())
 }
@@ -119,7 +124,7 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
     assert!(offset >= 0);
     let mut entries = vec![DbfsDirEntry::default(); 16]; // we read 16 entries at a time
     loop {
-        let res = dbfs_common_readdir(ino as usize, &mut entries, offset as u64,false);
+        let res = dbfs_common_readdir(ino as usize, &mut entries, offset as u64, false);
         if res.is_err() {
             repl.error(libc::ENOENT);
             return;
@@ -135,24 +140,32 @@ pub fn dbfs_fuse_readdir(ino: u64, mut offset: i64, mut repl: ReplyDirectory) {
                 // buf full
                 repl.ok();
                 // TODO! update GLOBAL_READDIR_TABLE
-                push_readdir_table(ino as usize,ReadDirInfo::new(x.offset as usize,x.name.clone()));
-                warn!("push_readdir_table(ino:{},offset:{},name:{})",ino,x.offset,x.name);
+                push_readdir_table(
+                    ino as usize,
+                    ReadDirInfo::new(x.offset as usize, x.name.clone()),
+                );
+                warn!(
+                    "push_readdir_table(ino:{},offset:{},name:{})",
+                    ino, x.offset, x.name
+                );
                 return;
             }
             offset = x.offset as i64 + 1;
         }
-        let x = &entries[res-1];
-        push_readdir_table(ino as usize,ReadDirInfo::new(x.offset as usize,x.name.clone()));
+        let x = &entries[res - 1];
+        push_readdir_table(
+            ino as usize,
+            ReadDirInfo::new(x.offset as usize, x.name.clone()),
+        );
     }
 }
 
-
-pub fn dbfs_fuse_readdirplus(ino:u64, mut offset:i64, mut repl:ReplyDirectoryPlus){
+pub fn dbfs_fuse_readdirplus(ino: u64, mut offset: i64, mut repl: ReplyDirectoryPlus) {
     // panic!("dbfs_fuse_readdirplus(ino:{},offset:{})",ino,offset);
     assert!(offset >= 0);
     let mut entries = vec![DbfsDirEntry::default(); 16]; // we read 16 entries at a time
     loop {
-        let res = dbfs_common_readdir(ino as usize, &mut entries, offset as u64,true);
+        let res = dbfs_common_readdir(ino as usize, &mut entries, offset as u64, true);
         if res.is_err() {
             repl.error(libc::ENOENT);
             return;
@@ -165,18 +178,31 @@ pub fn dbfs_fuse_readdirplus(ino:u64, mut offset:i64, mut repl:ReplyDirectoryPlu
         for i in 0..res {
             let x = &entries[i];
             let attr = x.attr.as_ref().unwrap();
-            if repl.add(x.ino, x.offset as i64 + 1, x.name.as_str(), &TTL, &attr.into(), 0) {
+            if repl.add(
+                x.ino,
+                x.offset as i64 + 1,
+                x.name.as_str(),
+                &TTL,
+                &attr.into(),
+                0,
+            ) {
                 // buf full
                 repl.ok();
 
                 // TODO! update GLOBAL_READDIR_TABLE
-                push_readdir_table(ino as usize,ReadDirInfo::new(x.offset as usize,x.name.clone()));
+                push_readdir_table(
+                    ino as usize,
+                    ReadDirInfo::new(x.offset as usize, x.name.clone()),
+                );
                 return;
             }
             offset = x.offset as i64 + 1;
         }
-        let x = &entries[res-1];
-        push_readdir_table(ino as usize,ReadDirInfo::new(x.offset as usize,x.name.clone()));
+        let x = &entries[res - 1];
+        push_readdir_table(
+            ino as usize,
+            ReadDirInfo::new(x.offset as usize, x.name.clone()),
+        );
     }
 }
 

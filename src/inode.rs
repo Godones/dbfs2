@@ -1,21 +1,27 @@
-use crate::attr::clear_suid_sgid;
-use crate::file::{DBFS_DIR_FILE_OPS, DBFS_FILE_FILE_OPS, DBFS_SYMLINK_FILE_OPS};
-use crate::{clone_db, dbfs_time_spec, SLICE_SIZE, u16, u32, u64, usize};
-use alloc::borrow::ToOwned;
-use alloc::string::ToString;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
-use alloc::{format, vec};
-use core::cmp::min;
-use core::sync::atomic::AtomicUsize;
-use log::{debug, error};
-use rvfs::dentry::{DirEntry, LookUpData};
-use rvfs::file::{FileMode, FileOps};
-use rvfs::inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode, InodeOps};
-use rvfs::{ddebug, warn, StrResult};
+use alloc::{borrow::ToOwned, format, string::ToString, sync::Arc, vec, vec::Vec};
+use core::{cmp::min, sync::atomic::AtomicUsize};
 
-use crate::common::{generate_data_key, DbfsAttr, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec, ACCESS_W_OK, RENAME_EXCHANGE, generate_data_key_with_number};
-use crate::link::{dbfs_common_readlink, dbfs_common_unlink};
+use log::{debug, error};
+use rvfs::{
+    ddebug,
+    dentry::{DirEntry, LookUpData},
+    file::{FileMode, FileOps},
+    inode::{create_tmp_inode_from_sb_blk, Inode, InodeMode, InodeOps},
+    warn, StrResult,
+};
+
+use crate::{
+    attr::clear_suid_sgid,
+    clone_db,
+    common::{
+        generate_data_key, generate_data_key_with_number, DbfsAttr, DbfsError, DbfsFileType,
+        DbfsPermission, DbfsResult, DbfsTimeSpec, ACCESS_W_OK, RENAME_EXCHANGE,
+    },
+    dbfs_time_spec,
+    file::{DBFS_DIR_FILE_OPS, DBFS_FILE_FILE_OPS, DBFS_SYMLINK_FILE_OPS},
+    link::{dbfs_common_readlink, dbfs_common_unlink},
+    u16, u32, u64, usize, SLICE_SIZE,
+};
 
 pub static DBFS_INODE_NUMBER: AtomicUsize = AtomicUsize::new(1);
 
@@ -385,7 +391,6 @@ fn dbfs_rename(
     let old_bucket = tx.get_bucket(old_number.to_be_bytes()).unwrap();
     let old_name = old_dentry.access_inner().d_name.clone();
 
-
     // let kv = old_bucket.kv_pairs().find(|kv| {
     //     kv.key().starts_with("data".as_bytes()) && kv.value().starts_with(old_name.as_bytes())
     // });
@@ -574,7 +579,6 @@ pub fn dbfs_common_create(
     let size = usize!(size.value());
     // update the size of the dir
     parent.put("size", (size + 1).to_be_bytes()).unwrap();
-
 
     let key = generate_data_key(name);
     let value = format!("{}", new_number);
@@ -803,7 +807,7 @@ pub fn dbfs_common_rmdir(
     let size = usize!(size.value());
     // if size > 2, it means the directory is not empty
     //  Directories always have a self and parent link
-    error!("dbfs_rmdir {}: size {}",number, size);
+    error!("dbfs_rmdir {}: size {}", number, size);
     if size > 2 {
         return Err(DbfsError::NotEmpty);
     }
@@ -833,7 +837,7 @@ pub fn dbfs_common_rmdir(
     p_bucket.put("size", (p_size - 1).to_be_bytes())?;
     // delete the inode
     tx.delete_bucket(number.to_be_bytes())?;
-    error!("======== delete dir {} =========",name);
+    error!("======== delete dir {} =========", name);
     tx.commit()?;
     Ok(())
 }
@@ -918,7 +922,6 @@ pub fn dbfs_common_rename(
         if value.is_none() {
             return Err(DbfsError::NotFound);
         }
-
 
         let old_dir_uid = old_dir_bucket.get_kv("uid").unwrap();
         let old_dir_uid = u32!(old_dir_uid.value());
@@ -1089,12 +1092,11 @@ pub fn dbfs_common_rename(
     let old_dir_bucket = tx.get_bucket(old_dir.to_be_bytes())?;
     let new_dir_bucket = tx.get_bucket(new_dir.to_be_bytes())?;
 
-
     let old_dir_bucket = &old_dir_bucket;
 
-    let new_dir_bucket = if old_dir == new_dir{
-      old_dir_bucket
-    }else {
+    let new_dir_bucket = if old_dir == new_dir {
+        old_dir_bucket
+    } else {
         &new_dir_bucket
     };
 
@@ -1139,7 +1141,7 @@ pub fn dbfs_common_rename(
     // 3.1 update the size
 
     let old_dir_size = old_dir_bucket.get_kv("size").unwrap();
-    let old_dir_size =  usize!(old_dir_size.value());
+    let old_dir_size = usize!(old_dir_size.value());
 
     old_dir_bucket.put("size", (old_dir_size - 1).to_be_bytes())?;
 
@@ -1157,9 +1159,9 @@ pub fn dbfs_common_rename(
     }
 
     // 4.1 update the size
-    let new_dir_size = if old_dir == new_dir{
+    let new_dir_size = if old_dir == new_dir {
         new_dir_size
-    }else {
+    } else {
         new_dir_size + 1
     };
     new_dir_bucket.put("size", new_dir_size.to_be_bytes())?;

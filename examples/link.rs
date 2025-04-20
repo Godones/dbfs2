@@ -1,13 +1,19 @@
-use dbfs2::{DBFS, SLICE_SIZE};
-use jammdb::memfile::{FakeMap, FileOpenOptions};
-use jammdb::DB;
-use rvfs::file::{vfs_mkdir, vfs_open_file, vfs_readdir, vfs_write_file, FileMode, OpenFlags, File};
-use rvfs::link::{vfs_link, vfs_unlink};
-use rvfs::mount::{do_mount, MountFlags};
-use rvfs::superblock::register_filesystem;
-use rvfs::{init_process_info, FakeFSC};
 use std::sync::Arc;
-use rvfs::dentry::Dirent64Iterator;
+
+use dbfs2::{DBFS, SLICE_SIZE};
+use jammdb::{
+    memfile::{FakeMap, FileOpenOptions},
+    DB,
+};
+use rvfs::{
+    dentry::Dirent64Iterator,
+    file::{vfs_mkdir, vfs_open_file, vfs_readdir, vfs_write_file, File, FileMode, OpenFlags},
+    init_process_info,
+    link::{vfs_link, vfs_unlink},
+    mount::{do_mount, MountFlags},
+    superblock::register_filesystem,
+    FakeFSC,
+};
 
 fn main() {
     env_logger::init();
@@ -48,7 +54,9 @@ fn init_db(db: &DB) {
     let bucket = tx.get_or_create_bucket("super_blk").unwrap();
     bucket.put("continue_number", 1usize.to_be_bytes()).unwrap();
     bucket.put("magic", 1111u32.to_be_bytes()).unwrap();
-    bucket.put("blk_size", (SLICE_SIZE as u32).to_be_bytes()).unwrap();
+    bucket
+        .put("blk_size", (SLICE_SIZE as u32).to_be_bytes())
+        .unwrap();
     bucket
         .put("disk_size", (1024 * 1024 * 16u64).to_be_bytes())
         .unwrap(); //16MB
@@ -63,6 +71,6 @@ fn readdir(dir: Arc<File>) {
     let r = vfs_readdir(dir, &mut dirents[..]).unwrap();
     assert_eq!(r, len);
     Dirent64Iterator::new(&dirents[..]).for_each(|x| {
-        println!("{} {:?} {}",x.get_name(),x.type_,x.ino);
+        println!("{} {:?} {}", x.get_name(), x.type_, x.ino);
     });
 }

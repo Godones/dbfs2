@@ -1,24 +1,31 @@
-use crate::{BUDDY_ALLOCATOR, clone_db, copy_data, SLICE_SIZE, u16, u32, usize};
+use alloc::{format, string::ToString, sync::Arc, vec, vec::Vec};
+use core::{
+    alloc::Layout,
+    cmp::{max, min},
+    ops::Range,
+    ptr::NonNull,
+    sync::atomic::AtomicBool,
+};
 
-use core::ops::Range;
-use alloc::string::ToString;
-use alloc::sync::Arc;
-use alloc::{format, vec};
-
-use alloc::vec::Vec;
-use core::alloc::Layout;
-use core::cmp::{max, min};
-
-use core::ptr::NonNull;
-use core::sync::atomic::AtomicBool;
 use jammdb::Data;
 use log::{error, trace, warn};
+use rvfs::{
+    dentry::{Dirent64, DirentType},
+    file::{File, FileOps},
+    StrResult,
+};
 
-use crate::common::{DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec, get_readdir_table, generate_data_key_with_number, push_readdir_table, ReadDirInfo, pop_readdir_table};
-use crate::inode::{checkout_access, dbfs_common_attr};
-use rvfs::dentry::{Dirent64, DirentType};
-use rvfs::file::{File, FileOps};
-use rvfs::StrResult;
+use crate::{
+    clone_db,
+    common::{
+        generate_data_key_with_number, get_readdir_table, pop_readdir_table, push_readdir_table,
+        DbfsDirEntry, DbfsError, DbfsFileType, DbfsPermission, DbfsResult, DbfsTimeSpec,
+        ReadDirInfo,
+    },
+    copy_data,
+    inode::{checkout_access, dbfs_common_attr},
+    u16, u32, usize, BUDDY_ALLOCATOR, SLICE_SIZE,
+};
 
 pub const DBFS_DIR_FILE_OPS: FileOps = {
     let mut ops = FileOps::empty();
@@ -45,7 +52,8 @@ fn dbfs_file_write(file: Arc<File>, buf: &[u8], offset: u64) -> StrResult<usize>
         file.f_dentry.access_inner().d_inode.number,
         offset,
         buf.len(),
-        SLICE_SIZE);
+        SLICE_SIZE
+    );
     let dentry = file.f_dentry.clone();
     let inode = dentry.access_inner().d_inode.clone();
     let numer = inode.number;
@@ -108,7 +116,6 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     //     start_num += 1;
     // }
 
-
     // TODO! first version
     let end_num = (offset + buf.len() as u64) / SLICE_SIZE as u64 + 1;
     let offset = offset % SLICE_SIZE as u64;
@@ -119,12 +126,12 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     let end_num = min(end_num, f_end_num as u64);
 
     warn!(
-        "start_num: {:?}, end_num: {:?}, file_end_num:{:?}",start_num,end_num,f_end_num
+        "start_num: {:?}, end_num: {:?}, file_end_num:{:?}",
+        start_num, end_num, f_end_num
     );
 
     let start_key = generate_data_key_with_number(start_num as u32);
     let end_key = generate_data_key_with_number(end_num as u32);
-
 
     let range = Range {
         start: start_key.as_slice(),
@@ -169,7 +176,7 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
                     .copy_from_slice(&value[value_offset..value_offset + len]);
                 buf_offset += len;
                 start_num += 1;
-                warn!( "read len: {}", len);
+                warn!("read len: {}", len);
             }
         }
         if buf_offset == buf.len() {
@@ -178,11 +185,10 @@ pub fn dbfs_common_read(number: usize, buf: &mut [u8], offset: u64) -> DbfsResul
     }
     Ok(buf_offset)
 
-
-   // Ok(count)
+    // Ok(count)
 }
 #[cfg(feature = "fuse")]
-pub static FLAG:AtomicBool = AtomicBool::new(false);
+pub static FLAG: AtomicBool = AtomicBool::new(false);
 /// we need think about how to write data to dbfs
 /// * data1: \[u8;SLICE_SIZE]
 /// * data2: \[u8;SLICE_SIZE]
@@ -211,9 +217,9 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
     loop {
         let key = generate_data_key_with_number(num as u32);
         let len = min(buf.len() - count, SLICE_SIZE - offset as usize);
-        let data = if len == SLICE_SIZE && offset == 0{
+        let data = if len == SLICE_SIZE && offset == 0 {
             unsafe { buf.as_ptr().add(count) }
-        }else {
+        } else {
             #[cfg(feature = "fuse")]
             let start = std::time::SystemTime::now();
             let kv = bucket.get_kv(key.as_slice());
@@ -221,39 +227,45 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
             {
                 let end = std::time::SystemTime::now();
                 let duration = end.duration_since(start).unwrap();
-                if FLAG.load(core::sync::atomic::Ordering::SeqCst){
-                    std::println!("get_kv:{} cost {:?}", num,duration);
+                if FLAG.load(core::sync::atomic::Ordering::SeqCst) {
+                    std::println!("get_kv:{} cost {:?}", num, duration);
                 }
             }
-            if kv.is_none(){
+            if kv.is_none() {
                 let ptr = unsafe {
-                    let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
+                    let ptr = BUDDY_ALLOCATOR
+                        .lock()
+                        .alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
                     ptr.unwrap().as_ptr()
                 };
                 unsafe {
-                    copy_data(buf.as_ptr().add(count),ptr.add(offset as usize),len);
+                    copy_data(buf.as_ptr().add(count), ptr.add(offset as usize), len);
                 }
                 ptrs.push(ptr);
-                ptr as * const u8
-            }else {
+                ptr as *const u8
+            } else {
                 let value = kv.as_ref().unwrap().value();
                 let ptr = unsafe {
-                    let ptr = BUDDY_ALLOCATOR.lock().alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
+                    let ptr = BUDDY_ALLOCATOR
+                        .lock()
+                        .alloc(Layout::from_size_align_unchecked(SLICE_SIZE, 8));
                     ptr.unwrap().as_ptr()
                 };
                 unsafe {
-                    copy_data(value.as_ptr(),ptr,offset as usize);
-                    copy_data(buf.as_ptr().add(count),ptr.add(offset as usize),len);
-                    copy_data(value.as_ptr().add(offset as usize + len),ptr.add(offset as usize + len),SLICE_SIZE - offset as usize - len);
+                    copy_data(value.as_ptr(), ptr, offset as usize);
+                    copy_data(buf.as_ptr().add(count), ptr.add(offset as usize), len);
+                    copy_data(
+                        value.as_ptr().add(offset as usize + len),
+                        ptr.add(offset as usize + len),
+                        SLICE_SIZE - offset as usize - len,
+                    );
                 }
                 ptrs.push(ptr);
-                ptr as * const u8
+                ptr as *const u8
             }
         };
 
-        let data = unsafe{
-            core::slice::from_raw_parts(data, SLICE_SIZE)
-        };
+        let data = unsafe { core::slice::from_raw_parts(data, SLICE_SIZE) };
 
         bucket.put(key, data)?;
         count += len;
@@ -269,10 +281,11 @@ pub fn dbfs_common_write(number: usize, buf: &[u8], offset: u64) -> DbfsResult<u
         bucket.put("size", new_size.to_be_bytes())?;
     }
     tx.commit()?;
-    ptrs.into_iter().for_each(|ptr| {
-        unsafe {
-            BUDDY_ALLOCATOR.lock().dealloc(NonNull::new(ptr).unwrap(), Layout::from_size_align_unchecked(SLICE_SIZE, 8))
-        }
+    ptrs.into_iter().for_each(|ptr| unsafe {
+        BUDDY_ALLOCATOR.lock().dealloc(
+            NonNull::new(ptr).unwrap(),
+            Layout::from_size_align_unchecked(SLICE_SIZE, 8),
+        )
     });
     Ok(count)
 }
@@ -285,19 +298,22 @@ fn dbfs_readdir(file: Arc<File>, dirents: &mut [u8]) -> StrResult<usize> {
     let tx = db.tx(false).unwrap();
     let bucket = tx.get_bucket(numer.to_be_bytes()).unwrap();
 
-    let res:usize = if dirents.is_empty(){
-        bucket.kv_pairs().map(|x| {
-            if x.key().starts_with("data:".as_bytes()) {
-                let key = x.key();
-                let str = core::str::from_utf8(key).unwrap();
-                let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
-                let fake_dirent = Dirent64::new(name[0],1,0,DirentType::empty());
-                fake_dirent.len()
-            }else {
-                0
-            }
-        }).sum()
-    }else {
+    let res: usize = if dirents.is_empty() {
+        bucket
+            .kv_pairs()
+            .map(|x| {
+                if x.key().starts_with("data:".as_bytes()) {
+                    let key = x.key();
+                    let str = core::str::from_utf8(key).unwrap();
+                    let name = str.rsplitn(2, ':').collect::<Vec<&str>>();
+                    let fake_dirent = Dirent64::new(name[0], 1, 0, DirentType::empty());
+                    fake_dirent.len()
+                } else {
+                    0
+                }
+            })
+            .sum()
+    } else {
         pop_readdir_table(numer);
         let mut count = 0;
         let buf_len = dirents.len();
@@ -305,8 +321,8 @@ fn dbfs_readdir(file: Arc<File>, dirents: &mut [u8]) -> StrResult<usize> {
         let mut offset = 0;
         loop {
             let mut entries = vec![DbfsDirEntry::default(); 16]; // we read 16 entries at a time
-            let res = dbfs_common_readdir(numer as usize, &mut entries, offset as u64,false);
-            if res.is_err(){
+            let res = dbfs_common_readdir(numer as usize, &mut entries, offset as u64, false);
+            if res.is_err() {
                 return Err("dbfs_common_readdir error");
             }
             let res = res.unwrap();
@@ -316,7 +332,7 @@ fn dbfs_readdir(file: Arc<File>, dirents: &mut [u8]) -> StrResult<usize> {
             }
             for i in 0..res {
                 let x = &entries[i];
-                let dirent = Dirent64::new(&x.name,x.ino,x.offset as i64,x.kind.into());
+                let dirent = Dirent64::new(&x.name, x.ino, x.offset as i64, x.kind.into());
                 offset = x.offset as i64 + 1;
                 if count + dirent.len() <= buf_len {
                     let dirent_ptr = unsafe { &mut *(ptr as *mut Dirent64) };
@@ -330,15 +346,15 @@ fn dbfs_readdir(file: Arc<File>, dirents: &mut [u8]) -> StrResult<usize> {
                         ptr = ptr.add(dirent_ptr.len());
                     }
                     count += dirent_ptr.len();
-                }else {
+                } else {
                     return Ok(count); // return
                 }
             }
             if res < 16 {
                 break;
             }
-            let x = &entries[res-1];
-            push_readdir_table(numer,ReadDirInfo::new(x.offset as usize,x.name.clone()));
+            let x = &entries[res - 1];
+            push_readdir_table(numer, ReadDirInfo::new(x.offset as usize, x.name.clone()));
         }
         count
     };
@@ -349,7 +365,7 @@ pub fn dbfs_common_readdir(
     ino: usize,
     buf: &mut Vec<DbfsDirEntry>,
     offset: u64,
-    is_readdir_plus:bool
+    is_readdir_plus: bool,
 ) -> DbfsResult<usize> {
     let db = clone_db();
     let tx = db.tx(false)?;
@@ -361,12 +377,12 @@ pub fn dbfs_common_readdir(
 
     let mut cursor = bucket.cursor();
     let readdir_info = get_readdir_table(ino);
-    if readdir_info.is_some(){
+    if readdir_info.is_some() {
         let info = readdir_info.unwrap();
         let name = info.key;
         let save_offset = info.offset;
-        assert_eq!(offset,(save_offset as u64 +1));
-        let key = format!("data:{}",name);
+        assert_eq!(offset, (save_offset as u64 + 1));
+        let key = format!("data:{}", name);
         let res = cursor.seek(key);
         assert_eq!(res, true);
         let val = cursor.next();
@@ -376,7 +392,7 @@ pub fn dbfs_common_readdir(
     cursor.for_each(|x| {
         if let Data::KeyValue(kv) = x {
             let key = kv.key();
-            if key.starts_with(b"data:"){
+            if key.starts_with(b"data:") {
                 let key = key.splitn(2, |x| *x == b':').collect::<Vec<&[u8]>>();
                 let name = key[1];
                 let name = core::str::from_utf8(name).unwrap();
@@ -389,13 +405,13 @@ pub fn dbfs_common_readdir(
                 entry.offset = offset;
 
                 offset += 1;
-                if !is_readdir_plus{
+                if !is_readdir_plus {
                     let inode = tx.get_bucket(inode_number.to_be_bytes()).unwrap();
                     let mode = inode.get_kv("mode").unwrap();
                     let mode = u16!(mode.value());
                     let perm = DbfsPermission::from_bits_truncate(mode);
                     entry.kind = DbfsFileType::from(perm);
-                }else {
+                } else {
                     let attr = dbfs_common_attr(inode_number).unwrap();
                     entry.kind = attr.kind;
                     entry.attr = Some(attr);
@@ -407,8 +423,8 @@ pub fn dbfs_common_readdir(
                 if buf.len() == buf_len {
                     return;
                 }
-            }else {
-                return
+            } else {
+                return;
             }
         }
     });

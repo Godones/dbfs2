@@ -1,9 +1,13 @@
-
-use crate::common::{DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, ACCESS_W_OK, generate_data_key};
-use crate::inode::checkout_access;
-use crate::{clone_db, u16, u32, usize};
 use core::cmp::min;
+
 use log::{error, warn};
+
+use crate::{
+    clone_db,
+    common::{generate_data_key, DbfsError, DbfsPermission, DbfsResult, DbfsTimeSpec, ACCESS_W_OK},
+    inode::checkout_access,
+    u16, u32, usize,
+};
 
 pub fn dbfs_common_readlink(ino: usize, buf: &mut [u8]) -> DbfsResult<usize> {
     let db = clone_db();
@@ -102,7 +106,7 @@ pub fn dbfs_common_unlink(
         // update ctime
         bucket.put("ctime", c_time.to_be_bytes())?;
     }
-    error!("dir {} size now is {}, ino is {}", dir, size - 1,ino);
+    error!("dir {} size now is {}, ino is {}", dir, size - 1, ino);
     tx.commit()?;
     Ok(())
 }
