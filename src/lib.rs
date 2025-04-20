@@ -18,7 +18,6 @@ use jammdb::DB;
 use log::error;
 use spin::Once;
 pub mod extend;
-
 #[cfg(feature = "fuse")]
 pub use file::FLAG;
 

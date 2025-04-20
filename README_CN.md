@@ -20,7 +20,12 @@
 DBFS在通用的接口层上适配了fuse接口与笔者使用rust实现的[rvfs](https://github.com/Godones/rvfs)框架。
 
 1. 用户态文件系统
-
+- DBFS-Fuse 兼容 libfuse3，确保支持最新版本的 FUSE。
+- 请通过 pkg-config 检查 libfuse3 是否已正确安装，例如：
+```
+pkg-config --modversion fuse3
+```
+克隆到本地，然后运行（请提前检查是否有bench目录）：
 ```
 git clone https://github.com/Godones/dbfs2.git
 cargo run --release --example fuse -- --allow-other --auto-unmount --mount-point ./bench/dbfs
@@ -96,7 +101,7 @@ make
 2. 切换到`bench`目录下，创建ext3/ext4的文件系统镜像
 
 ```
-make prefile
+make pre_file
 ```
 
 3. 挂载ext文件系统
